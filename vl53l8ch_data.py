@@ -1,0 +1,47 @@
+import os
+import csv
+from datetime import datetime
+
+# --- CONFIGURATION ---
+
+DATA_ROOT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/GUIs/MZAI_EVK_v1.0.1\data"
+CSV_LOG_PATH = os.path.join(DATA_ROOT, "pose_log.csv")
+
+
+
+# --- HELPERS ---
+
+def get_new_log_folder(base_path, before_set):
+    """Return the path to the newest 'log__' folder that wasn't in before_set."""
+    after_set = set(os.listdir(base_path))
+    new_folders = after_set - before_set
+    new_folders = [f for f in new_folders if f.startswith("log__")]
+    if not new_folders:
+        return None
+    latest_folder = sorted(new_folders)[-1]
+    return os.path.join(base_path, latest_folder)
+
+
+def find_data_csv(folder_path):
+    """Return the path to the data_*.csv file inside folder_path."""
+    files = os.listdir(folder_path)
+    for file in files:
+        if file.startswith("data_") and file.endswith(".csv"):
+            return os.path.join(folder_path, file)
+    return None
+
+
+def log_pose_to_csv(csv_path, pose_index, movement_label, movement_value, pose_vector, csv_file_path):
+    """Append pose + movement + pose vector + filename to master CSV."""
+    timestamp = datetime.now().isoformat(timespec='seconds')
+
+    # Only write header if file doesn't exist or is empty
+    write_header = not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
+    header = ["pose_index", "timestamp", movement_label, "x", "y", "z", "rx", "ry", "rz", "data_file"]
+
+    with open(csv_path, mode='a', newline='') as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(header)
+        writer.writerow([pose_index, timestamp, movement_value, *pose_vector, os.path.basename(csv_file_path)])
+    print(f"Logged pose {pose_index} to {os.path.basename(csv_path)}")
