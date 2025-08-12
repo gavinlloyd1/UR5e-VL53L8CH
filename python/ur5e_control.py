@@ -1,3 +1,29 @@
+"""
+ur5e_control.py
+---------------
+Encapsulates control of a Universal Robots UR5e robotic arm using the `urx` Python API.
+
+This module defines the UR5eController class, which:
+    • Handles TCP connection and retry logic to the UR5e.
+    • Sets the tool center point (TCP) and payload parameters.
+    • Provides high-level motion helpers for:
+        - Cartesian translations (X/Y/Z)
+        - Rotations in radians or degrees
+        - Tool-axis roll, pitch, and yaw
+        - Base joint rotation
+        - Moving to a predefined home position
+    • Poses can be read as 6-element [X, Y, Z, Rx, Ry, Rz] lists.
+    • Connection is cleaned up via the `close()` method.
+
+Key details:
+    • Automatically retries connection a configurable number of times.
+    • Monkey-patches `getl()` to work around issues in certain urx versions by
+      pulling pose data from the secondary monitor.
+    • All motion helpers default to non-blocking moves (`wait=False`), so explicit
+      delays are often needed between sequential commands.
+"""
+
+
 import time
 import math
 import m3d

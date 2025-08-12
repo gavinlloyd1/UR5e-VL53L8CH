@@ -1,8 +1,34 @@
 """
 ur5e_vl53l8ch_experiment.py
-Experiment runner functions for UR5e + VL53L8CH ToF sensor.
-Imports motion helpers from ur5e_control.
+---------------------------
+General experiment runner for coordinating a UR5e robotic arm with a
+VL53L8CH time-of-flight (ToF) sensor for automated data collection.
+
+Features:
+    • Provides reusable experiment helper functions (e.g., yaw stepping).
+    • Supports precise UR5e motion control via the UR5eController class.
+    • Automates data capture through the VL53L8CH GUI.
+    • Logs robot poses and associates them with collected sensor datasets.
+    • Stores results in a master CSV log for later analysis.
+
+Current Implementation:
+    - yaw_stepper(): Sweeps robot yaw in fixed-degree increments and logs data.
+
+Future Extensions:
+    • Additional movement patterns (pitch sweeps, XYZ translation grids, etc.).
+    • Multi-sensor experiment coordination.
+    • Configurable motion and logging parameters from external files.
+
+Key Components:
+    UR5eController       - Motion and pose control for the UR5e robot.
+    vl53l8ch_gui_auto    - Automates the VL53L8CH GUI for data logging.
+    vl53l8ch_data        - Detects new log folders and writes master CSV logs.
+
+Usage:
+    Run this script directly to perform a configured experiment.
+    Adjust constants (IP, TCP_M, PAYLOAD_KG, etc.) for your setup.
 """
+
 
 import time
 import os
@@ -41,7 +67,7 @@ CSV_LOG_PATH = os.path.join(DATA_ROOT, "pose_log.csv")
 
 def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, movement_label="yaw_deg"):
     """
-    Rotates the UR5e robot's tool yaw in step_deg° increments between -edge_deg and +edge_deg,
+    Rotates the UR5e robot's tool yaw in step_deg increments between -edge_deg and +edge_deg,
     triggering VL53L8CH ToF sensor data logging at each position.
 
     Steps:

@@ -1,3 +1,31 @@
+"""
+vl53l8ch_gui_auto.py
+--------------------
+Automates interaction with the VL53L8CH GUI for sensor configuration and data logging
+using `pyautogui` for screen-based automation.
+
+Functions:
+    wait_for_image(images, confidence=0.8, image_timeout=5):
+        Waits for one or more target images to appear on screen within a timeout period.
+        Supports multiple candidate image files and returns the location of the first match.
+
+    data_logging_cycle(num_frames, image_timeout, logging_timeout):
+        Clicks the "Start Logging" button in the GUI, waits for data logging to complete
+        or timeout, and handles early termination if logging takes too long.
+
+    vl53l8ch_gui_startup(num_locations=1):
+        Prompts the user to configure CNH bin settings (cnhStartBin, cnhNumBins, cnhSubSample)
+        and number of frames per logging location, updates the GUI YAML settings via helper
+        functions, and starts the ranging process.
+
+Key points:
+    • Uses image recognition to find and click GUI buttons.
+    • Configures measurement bins and logging parameters before experiments.
+    • Designed for experiments where the VL53L8CH sensor GUI must be controlled remotely
+      in sync with robotic positioning.
+"""
+
+
 import pyautogui
 import time
 from vl53l8ch_yaml_utils import update_log_settings, update_cnh_bin_settings

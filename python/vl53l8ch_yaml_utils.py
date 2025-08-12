@@ -1,3 +1,33 @@
+"""
+vl53l8ch_yaml_utils.py
+----------------------
+Helper utilities for updating YAML configuration files used by the
+VL53L8CH time-of-flight (ToF) sensor evaluation kit (EVK).
+
+Purpose:
+    • Modify logging and CNH bin configuration parameters for the EVK.
+    • Automate parameter updates without manually editing YAML files.
+
+Functions:
+    update_log_settings(num_frames, log_type="csv")
+        Updates the 'custom_log_settings.yml' file with the number of frames
+        to log and the desired log type (default: CSV).
+
+    update_cnh_bin_settings(preset_name, start_bin, sub_sample, num_bins)
+        Updates CNH bin configuration values for a specified preset in
+        'custom_presets.yml'.
+
+Configuration Paths:
+    EVK_CONFIG_PATH - Base path to the EVK config directory.
+    YAML_PATH       - Path to the custom log settings YAML.
+    PRESET_PATH     - Path to the custom presets YAML.
+
+Usage:
+    Import this module into experiment scripts to programmatically change
+    sensor logging parameters and CNH bin settings before data collection.
+"""
+
+
 import yaml
 import os
 
