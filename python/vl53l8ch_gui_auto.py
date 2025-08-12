@@ -5,20 +5,20 @@ Automates interaction with the VL53L8CH GUI for sensor configuration and data lo
 using `pyautogui` for screen-based automation.
 
 Functions:
-    wait_for_image(images, confidence=0.8, image_timeout=5):
+    wait_for_image(image_dir, images, confidence=0.8, image_timeout=5):
         Waits for one or more target images to appear on screen within a timeout period.
         Supports multiple candidate image files and returns the location of the first match.
 
-    data_logging_cycle(num_frames, image_timeout, logging_timeout):
+    data_logging_cycle(image_dir, num_frames, image_timeout, logging_timeout):
         Clicks the "Start Logging" button in the GUI, waits for data logging to complete
         or timeout, and handles early termination if logging takes too long.
 
-    vl53l8ch_gui_startup(num_locations=1):
+    vl53l8ch_gui_startup(image_dir, num_locations=1):
         Prompts the user to configure CNH bin settings (cnhStartBin, cnhNumBins, cnhSubSample)
         and number of frames per logging location, updates the GUI YAML settings via helper
         functions, and starts the ranging process.
 
-Key points:
+Key details:
     • Uses image recognition to find and click GUI buttons.
     • Configures measurement bins and logging parameters before experiments.
     • Designed for experiments where the VL53L8CH sensor GUI must be controlled remotely
@@ -28,12 +28,16 @@ Key points:
 
 import pyautogui
 import time
+import os
 from vl53l8ch_yaml_utils import update_log_settings, update_cnh_bin_settings
 
 
-def wait_for_image(images, confidence=0.8, image_timeout=5):
+def wait_for_image(image_dir, images, confidence=0.8, image_timeout=5):
     if isinstance(images, str):
         images = [images]
+
+    # Prepend image_dir to all images
+    images = [os.path.join(image_dir, img) for img in images]
 
     start = time.time()
     best_confidence = 0.0
@@ -57,12 +61,12 @@ def wait_for_image(images, confidence=0.8, image_timeout=5):
     return None
 
 
-def data_logging_cycle(num_frames, image_timeout, logging_timeout):
+def data_logging_cycle(image_dir, num_frames, image_timeout, logging_timeout):
     # Move the pointer to the top-left-ish corner of the screen (bug fix)
     pyautogui.moveTo(100, 100)
 
     # Locate and click the Start Logging button
-    start_logging_location = wait_for_image(['start_logging_button_default.png', 'start_logging_button_changed.png'], confidence=0.8, image_timeout=image_timeout)
+    start_logging_location = wait_for_image(image_dir, ['start_logging_button_default.png', 'start_logging_button_changed.png'], confidence=0.8, image_timeout=image_timeout)
     if not start_logging_location:
         raise RuntimeError("Start Logging button not found.")
     pyautogui.click(pyautogui.center(start_logging_location))
@@ -86,7 +90,7 @@ def data_logging_cycle(num_frames, image_timeout, logging_timeout):
             break
 
         try:
-            match = pyautogui.locateOnScreen('zero_sec.png', confidence=0.99)
+            match = pyautogui.locateOnScreen(os.path.join(image_dir, 'zero_sec.png'), confidence=0.99)
         except Exception:
             match = None
 
@@ -97,7 +101,7 @@ def data_logging_cycle(num_frames, image_timeout, logging_timeout):
         time.sleep(0.5)
 
 
-def vl53l8ch_gui_startup(num_locations=1):
+def vl53l8ch_gui_startup(image_dir, num_locations=1):
     # Prompt user for number of bins, start bin, and sub sample
     while True:
         try:
@@ -146,7 +150,7 @@ def vl53l8ch_gui_startup(num_locations=1):
     update_log_settings(num_frames=num_frames)
 
     # Start ranging
-    start_ranging_location = pyautogui.locateOnScreen('start_ranging_button.png', confidence=0.8)
+    start_ranging_location = pyautogui.locateOnScreen(os.path.join(image_dir, 'start_ranging_button.png'), confidence=0.8)
     pyautogui.click(pyautogui.center(start_ranging_location))
     print("\nStart ranging button clicked.\n")
     time.sleep(5)

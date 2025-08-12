@@ -53,6 +53,7 @@ MAX_STARTUP_ATTEMPTS = 5
 # -------------------------------------------------------------------
 
 # for vl53l8ch_gui_auto.py
+IMAGE_DIR = os.path.join(os.path.dirname(__file__), "gui_images") # Folder containing GUI button images
 IMAGE_TIMEOUT = 5
 LOGGING_TIMEOUT = 300
 
@@ -101,7 +102,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
 
     # Start the GUI (make sure it's open on the computer, do not drag it anywhere after opening)
     num_locations = int(round((edge * 2) / step_deg)) + 1
-    num_frames = vl53l8ch_gui_startup(num_locations=num_locations)
+    num_frames = vl53l8ch_gui_startup(image_dir=IMAGE_DIR, num_locations=num_locations)
 
     current_yaw = start_angle
     for i in range(num_locations):
@@ -113,7 +114,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
 
         # Trigger one logging run
         print(f"\nStarting data logging at location {i+1}...")
-        success = data_logging_cycle(num_frames, image_timeout=IMAGE_TIMEOUT, logging_timeout=LOGGING_TIMEOUT)
+        success = data_logging_cycle(image_dir=IMAGE_DIR, num_frames=num_frames, image_timeout=IMAGE_TIMEOUT, logging_timeout=LOGGING_TIMEOUT)
         print(f"Finished data logging at location {i+1}. Success = {success}")
 
         # Wait for new folder to appear, then locate it

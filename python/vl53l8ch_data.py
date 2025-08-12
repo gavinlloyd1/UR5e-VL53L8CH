@@ -17,7 +17,7 @@ Functions:
         and the associated CSV filename to a master log CSV file. Automatically writes a
         header if the file is new or empty.
 
-Key points:
+Key details:
     • Designed for post-processing and organization of sensor data.
     • Tracks association between robot poses and sensor data files.
     • Ensures consistent CSV logging format across multiple experiments.
