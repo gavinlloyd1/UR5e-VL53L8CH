@@ -1,5 +1,5 @@
 """
-vl53l8ch_gui_auto.py
+vl53l8ch_gui_automation.py
 --------------------
 Automates interaction with the VL53L8CH GUI for sensor configuration and data logging
 using `pyautogui` for screen-based automation.

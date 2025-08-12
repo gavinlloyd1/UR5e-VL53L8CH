@@ -20,9 +20,9 @@ Future Extensions:
     • Configurable motion and logging parameters from external files.
 
 Key Components:
-    UR5eController       - Motion and pose control for the UR5e robot.
-    vl53l8ch_gui_auto    - Automates the VL53L8CH GUI for data logging.
-    vl53l8ch_data        - Detects new log folders and writes master CSV logs.
+    UR5eController           - Motion and pose control for the UR5e robot.
+    vl53l8ch_gui_automation  - Automates the VL53L8CH GUI for data logging.
+    vl53l8ch_data            - Detects new log folders and writes master CSV logs.
 
 Usage:
     Run this script directly to perform a configured experiment.
@@ -33,7 +33,7 @@ Usage:
 import time
 import os
 from ur5e_control import UR5eController
-from vl53l8ch_gui_auto import data_logging_cycle, vl53l8ch_gui_startup
+from vl53l8ch_gui_automation import data_logging_cycle, vl53l8ch_gui_startup
 from vl53l8ch_data import get_new_log_folder, find_data_csv, log_pose_to_csv
 
 
@@ -97,7 +97,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
     
     # Move to starting position
     start_angle = -edge
-    robot.yaw_deg(start_angle)
+    robot.rotate_yaw_deg(start_angle)
     time.sleep(5)
 
     # Start the GUI (make sure it's open on the computer, do not drag it anywhere after opening)
@@ -132,7 +132,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
         
         # Step to next position (skip after last)
         if i < num_locations - 1:
-            robot.yaw_deg(step_deg)
+            robot.rotate_yaw_deg(step_deg)
             current_yaw += step_deg
             print(f"Moved to position {i+2} ({current_yaw}°).")
             time.sleep(2)

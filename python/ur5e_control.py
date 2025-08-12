@@ -48,7 +48,7 @@ class UR5eController:
 
                 self.robot.set_tcp(tcp_m)
                 self.robot.set_payload(payload_kg, (0, 0, 0.1))
-                self.go_home()
+                self.move_home()
 
                 # Monkey-patch broken getl()
                 def safe_getl():
@@ -65,8 +65,9 @@ class UR5eController:
                     raise RuntimeError(f"[UR5e] Failed to connect after {max_startup_attempts} attempts.")
 
 
+
     # -------------------------------------------------------------------
-    # Motion helpers
+    # MOTION HELPERS
     # -------------------------------------------------------------------
 
     def move_relative(self, dx=0, dy=0, dz=0, rx=0, ry=0, rz=0, acc=0.2, vel=0.1):
@@ -123,7 +124,7 @@ class UR5eController:
         self.move_relative(rz=math.radians(angle_deg), acc=acc, vel=vel)
 
 
-    def pitch_deg(self, angle_deg, acc=0.2, vel=0.1):
+    def rotate_pitch_deg(self, angle_deg, acc=0.2, vel=0.1):
         """Rotate around tool's X-axis (pitch)."""
 
         angle_rad = math.radians(angle_deg)
@@ -137,7 +138,7 @@ class UR5eController:
         self.robot.movel([float(v) for v in target.pose_vector], acc=acc, vel=vel, wait=False)
 
 
-    def yaw_deg(self, angle_deg, acc=0.2, vel=0.1):
+    def rotate_yaw_deg(self, angle_deg, acc=0.2, vel=0.1):
         """Rotate around tool's Y-axis (yaw)."""
 
         angle_rad = math.radians(angle_deg)
@@ -151,7 +152,7 @@ class UR5eController:
         self.robot.movel([float(v) for v in target.pose_vector], acc=acc, vel=vel, wait=False)
 
 
-    def roll_deg(self, angle_deg, acc=0.2, vel=0.1):
+    def rotate_roll_deg(self, angle_deg, acc=0.2, vel=0.1):
         """Rotate around tool's Z-axis (roll)."""
 
         angle_rad = math.radians(angle_deg)
@@ -172,7 +173,7 @@ class UR5eController:
         self.robot.movej(joints, acc=acc, vel=vel, wait=False)
 
 
-    def go_home(self, acc=0.5, vel=0.5):
+    def move_home(self, acc=0.5, vel=0.5):
         """Move robot to a known safe joint position."""
 
         home_joint_angles = (0, -1.57, 0, -1.57, 0, 0)

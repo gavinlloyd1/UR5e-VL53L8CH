@@ -29,6 +29,10 @@ import csv
 from datetime import datetime
 
 
+# -------------------------------------------------------------------
+# DATA INDEXING HELPERS
+# -------------------------------------------------------------------
+
 def get_new_log_folder(base_path, before_set):
     """Return the path to the newest 'log__' folder that wasn't in before_set."""
     after_set = set(os.listdir(base_path))
