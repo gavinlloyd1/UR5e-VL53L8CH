@@ -5,11 +5,25 @@ import m3d
 import os
 from urx.urrobot import URRobot
 from vl53l8ch_gui_auto import data_logging_cycle, update_log_settings, vl53l8ch_gui_startup
+from vl53l8ch_data import get_new_log_folder, find_data_csv, log_pose_to_csv
 
-# CONFIGURATION
+
+# -------------------------------------------------------------------
+# UR5e CONFIGURATION
+# -------------------------------------------------------------------
+
 IP = "192.168.0.1"              # UR5e IP address (computer's IP address needs to be 192.168.0.2)
 TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
+MAX_STARTUP_ATTEMPS = 5
+
+# -------------------------------------------------------------------
+# VL53L8CH CONFIGURATION
+# -------------------------------------------------------------------
+
+IMAGE_TIMEOUT = 5
+LOGGING_TIMEOUT = 300
+
 
 # -------------------------------------------------------------------
 # MOTION HELPERS
@@ -113,6 +127,7 @@ def go_home(robot, acc=0.5, vel=0.5):
     print("Moved to home position: ", get_pose_vector(robot))
     time.sleep(1)
 
+
 # -------------------------------------------------------------------
 # POSE HELPER
 # -------------------------------------------------------------------
@@ -121,74 +136,75 @@ def get_pose_vector(robot):
     """Return current pose as a 6-element float list."""
     return robot.getl()
 
+
 # -------------------------------------------------------------------
 # EXPERIMENT HELPER
 # -------------------------------------------------------------------
 
-def yaw_stepper(robot, edge_deg, movement_label='yaw_deg'):
-    num_poses = abs(edge_deg * 2) + 1
-    num_frames = vl53l8ch_gui_startup(num_locations=num_poses)
+def yaw_stepper(robot, edge_deg, movement_label="yaw_deg", movement_value=1):
+    num_locations = abs(edge_deg * 2) + 1
+    num_frames = vl53l8ch_gui_startup(num_locations=num_locations)
 
-    for i in range(num_poses):
+    for i in range(num_locations):
         pose_vector = get_pose_vector(robot)
 
-        print(f"\nPose {i+1}/{num_poses} ({movement_label} = {edge_deg + i} ): {pose_vector}")
+        print(f"\nPose {i+1}/{num_locations} ({movement_label} = {edge_deg + i} ): {pose_vector}")
 
         # Track folders before logging
-        before_folders = set(os.listdir(DATA_ROOT))
+        initial_folders = set(os.listdir(DATA_ROOT))
 
         # Trigger one logging run (blocking)
-        data_logging_cycle(num_frames, timeout=LOGGING_TIMEOUT)  # <-- your existing GUI function
+        print(f"\nStarting data logging at location {i+1}...")
+        data_logging_cycle(num_frames, image_timeout=IMAGE_TIMEOUT, logging_timeout=LOGGING_TIMEOUT)
+        print(f"Finished data logging at location {i+1}.")
 
         # Wait for folder to appear
-        new_folder = get_new_log_folder(DATA_ROOT, before_folders)
+        new_folder = get_new_log_folder(DATA_ROOT, initial_folders)
         if new_folder:
             data_csv = find_data_csv(new_folder)
             if data_csv:
-                log_pose_to_csv(CSV_LOG_PATH, i, movement_label, movement_value, pose_vector, data_csv)
+                log_pose_to_csv(CSV_LOG_PATH, i+1, movement_label, movement_value, pose_vector, data_csv)
             else:
                 print(f"No data_*.csv found in {new_folder}")
         else:
             print("No new log folder detected.")
-
-
-
-# Loop through locations
-    for i in range(1, num_locations + 1):
-        print(f"\nStarting data logging at location {i}...")
-        data_logging_cycle(num_frames, LOGGING_TIMEOUT)
-        print(f"Finished data logging at location {i}.")
+        
+        yaw_deg(robot, movement_value)
 
     print(f"\nData logging at all {num_locations} locations complete!")
-
 
 
 # -------------------------------------------------------------------
 # STARTUP HELPER
 # -------------------------------------------------------------------
 
-def startup(ip=IP, tcp_m=TCP_M, payload_kg=PAYLOAD_KG, ):
-    try:
-        robot = URRobot(ip)
-        time.sleep(1)
-        print("Connected to UR5e")
+def startup(ip=IP, tcp_m=TCP_M, payload_kg=PAYLOAD_KG, max_startup_attempts=MAX_STARTUP_ATTEMPS, delay=2.0):
+    for attempt in range(1, max_startup_attempts + 1):
+        try:
+            print(f"[UR5e] Attempt {attempt}/{max_startup_attempts} to connect...")
+            robot = URRobot(ip)
+            time.sleep(1)
+            print("[UR5e] Successfully connected!")
 
-        robot.set_tcp(tcp_m)
-        robot.set_payload(payload_kg, (0, 0, 0.1))
-        go_home(robot)
+            robot.set_tcp(tcp_m)
+            robot.set_payload(payload_kg, (0, 0, 0.1))
+            go_home(robot)
 
-        # Monkey-patch broken getl()
-        def safe_getl():
-            # Get pose data from secondary monitor directly
-            data = robot.secmon.get_cartesian_info()
-            return [data["X"], data["Y"], data["Z"], data["Rx"], data["Ry"], data["Rz"]]
-        robot.getl = safe_getl
+            # Monkey-patch broken getl()
+            def safe_getl():
+                # Get pose data from secondary monitor directly
+                data = robot.secmon.get_cartesian_info()
+                return [data["X"], data["Y"], data["Z"], data["Rx"], data["Ry"], data["Rz"]]
+            robot.getl = safe_getl
 
-        return robot
-
-    except Exception as e:
-        print("Exception during startup:", e)
-        return None
+            return robot
+        except Exception as e:
+                    print(f"[UR5e] Connection failed: {e}")
+                    if attempt < max_attempts:
+                        print(f"[UR5e] Retrying in {delay} seconds...")
+                        time.sleep(delay)
+                    else:
+                        raise RuntimeError(f"[UR5e] Failed to connect after {max_startup_attempts} attempts.")
 
 # -------------------------------------------------------------------
 # MAIN

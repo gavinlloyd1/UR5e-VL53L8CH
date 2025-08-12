@@ -2,10 +2,7 @@ import pyautogui
 import time
 from vl53l8ch_yaml_utils import update_log_settings, update_cnh_bin_settings
 
-LOGGING_TIMEOUT = 300
-IMAGE_TIMEOUT = 5
-
-def wait_for_image(images, confidence=0.8, timeout=IMAGE_TIMEOUT):
+def wait_for_image(images, confidence=0.8, image_timeout=5):
     if isinstance(images, str):
         images = [images]
 
@@ -31,12 +28,12 @@ def wait_for_image(images, confidence=0.8, timeout=IMAGE_TIMEOUT):
     return None
 
 
-def data_logging_cycle(num_frames, max_wait_time):
+def data_logging_cycle(num_frames, image_timeout, logging_timeout):
     # Move the pointer to the top-left-ish corner of the screen (bug fix)
     pyautogui.moveTo(100, 100)
 
     # Locate and click the Start Logging button
-    start_logging_location = wait_for_image(['start_logging_button_default.png', 'start_logging_button_changed.png'], confidence = 0.8, timeout = IMAGE_TIMEOUT)
+    start_logging_location = wait_for_image(['start_logging_button_default.png', 'start_logging_button_changed.png'], confidence=0.8, image_timeout=image_timeout)
     pyautogui.click(pyautogui.center(start_logging_location))
 
     # Save the time when the sensor starts logging data to check if it times out later
@@ -52,13 +49,13 @@ def data_logging_cycle(num_frames, max_wait_time):
     # Wait until the data logging is complete
     while True:
         elapsed = time.time() - start_time
-        if elapsed > max_wait_time:
-            print(f"Data logging could not be completed within {max_wait_time} seconds. Clicking stop logging button.")
+        if elapsed > logging_timeout:
+            print(f"Data logging could not be completed within {logging_timeout} seconds. Clicking stop logging button.")
             pyautogui.click()  # pointer is already on the stop button
             break
 
         try:
-            match = pyautogui.locateOnScreen('zero_sec.png', confidence = 0.99)
+            match = pyautogui.locateOnScreen('zero_sec.png', confidence=0.99)
         except pyautogui.ImageNotFoundException:
             match = None
 
