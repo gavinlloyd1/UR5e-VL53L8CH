@@ -2,6 +2,7 @@ import pyautogui
 import time
 from vl53l8ch_yaml_utils import update_log_settings, update_cnh_bin_settings
 
+
 def wait_for_image(images, confidence=0.8, image_timeout=5):
     if isinstance(images, str):
         images = [images]
@@ -9,7 +10,7 @@ def wait_for_image(images, confidence=0.8, image_timeout=5):
     start = time.time()
     best_confidence = 0.0
 
-    while time.time() - start < timeout:
+    while time.time() - start < image_timeout:
         for image in images:
             try:
                 location = pyautogui.locateOnScreen(image, confidence=confidence)
@@ -22,9 +23,9 @@ def wait_for_image(images, confidence=0.8, image_timeout=5):
                         best_confidence = max(best_confidence, float(msg.split("highest confidence = ")[-1]))
                     except:
                         pass
-        time.sleep(0.2)
+        time.sleep(0.5)
 
-    print(f"Failed to find any of: {images}.\nWaited for {timeout} seconds.\nHighest match confidence during search: {best_confidence:.3f}")
+    print(f"Failed to find any of: {images}.\nWaited for {image_timeout} seconds.\nHighest match confidence during search: {best_confidence:.3f}")
     return None
 
 
@@ -34,6 +35,8 @@ def data_logging_cycle(num_frames, image_timeout, logging_timeout):
 
     # Locate and click the Start Logging button
     start_logging_location = wait_for_image(['start_logging_button_default.png', 'start_logging_button_changed.png'], confidence=0.8, image_timeout=image_timeout)
+    if not start_logging_location:
+        raise RuntimeError("Start Logging button not found.")
     pyautogui.click(pyautogui.center(start_logging_location))
 
     # Save the time when the sensor starts logging data to check if it times out later
@@ -56,7 +59,7 @@ def data_logging_cycle(num_frames, image_timeout, logging_timeout):
 
         try:
             match = pyautogui.locateOnScreen('zero_sec.png', confidence=0.99)
-        except pyautogui.ImageNotFoundException:
+        except Exception:
             match = None
 
         if match:
@@ -88,11 +91,11 @@ def vl53l8ch_gui_startup(num_locations=1):
             print("Invalid input. Using default sub sample of 1.")
             sub_sample = 1
 
-        BIN_WIDTH_MM = 37.535
-        first_bin_mm = (start_bin + sub_sample / 2) * BIN_WIDTH_MM
-        last_bin_mm = (start_bin + (num_bins - 1) * sub_sample + sub_sample / 2) * BIN_WIDTH_MM
+        BIN_WIDTH_MM = 37.5348 * sub_sample
+        first_bin_mm = (start_bin + 0.5*sub_sample) * 37.5348
+        last_bin_mm  = (start_bin + (num_bins-1)*sub_sample + 0.5*sub_sample) * 37.5348
 
-        print(f"\nCNH bin width: {BIN_WIDTH_MM * sub_sample} mm\nFirst bin center: {first_bin_mm:.2f} mm\nLast bin center: {last_bin_mm:.2f} mm")
+        print(f"\nCNH bin width: {BIN_WIDTH_MM:.2f} mm\nFirst bin center: {first_bin_mm:.2f} mm\nLast bin center: {last_bin_mm:.2f} mm")
 
         confirm = input("\nEnter 'y' to confirm, or any other key to re-enter: ")
         if confirm == 'y':

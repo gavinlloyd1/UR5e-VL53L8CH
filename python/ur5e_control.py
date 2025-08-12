@@ -1,109 +1,178 @@
 import time
-import re
+import math
+import m3d
 from urx.urrobot import URRobot
 
-# CONFIGURATION
-IP = "192.168.0.1"              # UR5e IP address (computer's IP address needs to be 192.168.0.2)
-TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
-PAYLOAD_KG = 0.1
 
-# -------------------------------------------------------------------
-# MOTION HELPERS
-# -------------------------------------------------------------------
+class UR5eController:
+    """Encapsulates UR5e motion, pose, and startup helpers."""
 
-def move_relative(robot, dx=0, dy=0, dz=0, rx=0, ry=0, rz=0, acc=0.2, vel=0.1):
-    """Move linearly in Cartesian space by given offsets."""
-    pose = robot.getl()
-    pose[0] += dx
-    pose[1] += dy
-    pose[2] += dz
-    pose[3] += rx
-    pose[4] += ry
-    pose[5] += rz
-    
-    try:
-        robot.movel(pose, acc=acc, vel=vel, wait=False)
-    except Exception as e:
-        print("Cartesian move failed:", e)
+    def __init__(self, ip, tcp_m, payload_kg, max_startup_attempts=3, delay=2.0):
+        self.robot = None
+        self._connect(ip, tcp_m, payload_kg, max_startup_attempts, delay)
 
-def move_x(robot, distance_m, acc=0.2, vel=0.1):
-    move_relative(robot, dx=distance_m, acc=acc, vel=vel)
 
-def move_y(robot, distance_m, acc=0.2, vel=0.1):
-    move_relative(robot, dy=distance_m, acc=acc, vel=vel)
+    def _connect(self, ip, tcp_m, payload_kg, max_startup_attempts, delay):
+        for attempt in range(1, max_startup_attempts + 1):
+            try:
+                print(f"[UR5e] Attempt {attempt}/{max_startup_attempts} to connect...")
+                self.robot = URRobot(ip)
+                time.sleep(1)
+                print("[UR5e] Successfully connected!")
 
-def move_z(robot, distance_m, acc=0.2, vel=0.1):
-    move_relative(robot, dz=distance_m, acc=acc, vel=vel)
+                self.robot.set_tcp(tcp_m)
+                self.robot.set_payload(payload_kg, (0, 0, 0.1))
+                self.go_home()
 
-def rotate_x(robot, angle_rad, acc=0.2, vel=0.1):
-    move_relative(robot, rx=angle_rad, acc=acc, vel=vel)
+                # Monkey-patch broken getl()
+                def safe_getl():
+                    data = self.robot.secmon.get_cartesian_info()
+                    return [data["X"], data["Y"], data["Z"], data["Rx"], data["Ry"], data["Rz"]]
+                self.robot.getl = safe_getl
+                return
+            except Exception as e:
+                print(f"[UR5e] Connection failed: {e}")
+                if attempt < max_startup_attempts:
+                    print(f"[UR5e] Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    raise RuntimeError(f"[UR5e] Failed to connect after {max_startup_attempts} attempts.")
 
-def rotate_y(robot, angle_rad, acc=0.2, vel=0.1):
-    move_relative(robot, ry=angle_rad, acc=acc, vel=vel)
 
-def rotate_z(robot, angle_rad, acc=0.2, vel=0.1):
-    move_relative(robot, rz=angle_rad, acc=acc, vel=vel)
+    # -------------------------------------------------------------------
+    # Motion helpers
+    # -------------------------------------------------------------------
 
-def go_home(robot, acc=0.5, vel=0.3):
-    """Move robot to a known safe joint position."""
-    home_joint_angles = (0, -1.57, 0, -1.57, 0, 0)
-    robot.movej(home_joint_angles, acc=acc, vel=vel, wait=False)
-    time.sleep(10)
-    print("Moved to home position")
+    def move_relative(self, dx=0, dy=0, dz=0, rx=0, ry=0, rz=0, acc=0.2, vel=0.1):
+        """Move linearly in Cartesian space by given offsets."""
+        
+        pose = self.robot.getl()
 
-# -------------------------------------------------------------------
-# POSE HELPER
-# -------------------------------------------------------------------
+        pose[0] += dx
+        pose[1] += dy
+        pose[2] += dz
+        pose[3] += rx
+        pose[4] += ry
+        pose[5] += rz
 
-def get_pose_vector(robot):
-    """Return current pose as a 6-element float list."""
-    return robot.getl()
-
-# -------------------------------------------------------------------
-# STARTUP HELPER
-# -------------------------------------------------------------------
-
-def startup(ip=IP, tcp_m=TCP_M, payload_kg=PAYLOAD_KG):
-    try:
-        robot = URRobot(ip)
-        time.sleep(1)
-        print("Connected to UR5e")
-
-        robot.set_tcp(tcp_m)
-        robot.set_payload(payload_kg, (0, 0, 0.1))
-        go_home(robot)
-
-        # Monkey-patch broken getl()
-        def safe_getl():
-            # Get pose data from secondary monitor directly
-            data = robot.secmon.get_cartesian_info()
-            return [data["X"], data["Y"], data["Z"], data["Rx"], data["Ry"], data["Rz"]]
-        robot.getl = safe_getl
-
-        return robot
-
-    except Exception as e:
-        print("Exception during startup:", e)
-        return None
-
-# -------------------------------------------------------------------
-# MAIN
-# -------------------------------------------------------------------
-
-if __name__ == "__main__":
-    robot = startup()
-
-    if robot:
         try:
-            pose_list = get_pose_vector(robot)
-            print("Initial pose:", pose_list)
+            self.robot.movel(pose, acc=acc, vel=vel, wait=False)
+        except Exception as e:
+            print("[UR5e] Cartesian move failed:", e)
 
-            move_z(robot, -0.4)  # Move down 5 cm
-            #time.sleep(1)
-            #move_y(robot, 0.10)   # Move forward 10 cm
-            #time.sleep(4)
-            #rotate_x(robot, 0.3)  # Rotate 0.3 rad
 
-        finally:
-            robot.close()
-            print("Connection closed.")
+    def move_x_m(self, distance_m, acc=0.2, vel=0.1):
+        self.move_relative(dx=distance_m, acc=acc, vel=vel)
+
+
+    def move_y_m(self, distance_m, acc=0.2, vel=0.1):
+        self.move_relative(dy=distance_m, acc=acc, vel=vel)
+
+
+    def move_z_m(self, distance_m, acc=0.2, vel=0.1):
+        self.move_relative(dz=distance_m, acc=acc, vel=vel)
+
+
+    def move_rx_rad(self, angle_rad, acc=0.2, vel=0.1):
+        self.move_relative(rx=angle_rad, acc=acc, vel=vel)
+
+
+    def move_ry_rad(self, angle_rad, acc=0.2, vel=0.1):
+        self.move_relative(ry=angle_rad, acc=acc, vel=vel)
+
+
+    def move_rz_rad(self, angle_rad, acc=0.2, vel=0.1):
+        self.move_relative(rz=angle_rad, acc=acc, vel=vel)
+
+
+    def move_rx_deg(self, angle_deg, acc=0.2, vel=0.1):
+        self.move_relative(rx=math.radians(angle_deg), acc=acc, vel=vel)
+
+
+    def move_ry_deg(self, angle_deg, acc=0.2, vel=0.1):
+        self.move_relative(ry=math.radians(angle_deg), acc=acc, vel=vel)
+
+
+    def move_rz_deg(self, angle_deg, acc=0.2, vel=0.1):
+        self.move_relative(rz=math.radians(angle_deg), acc=acc, vel=vel)
+
+
+    def pitch_deg(self, angle_deg, acc=0.2, vel=0.1):
+        """Rotate around tool's X-axis (pitch)."""
+
+        angle_rad = math.radians(angle_deg)
+        pose = self.robot.getl()
+        pos = m3d.Vector(pose[:3])
+        orient = m3d.Orientation(pose[3:6])
+        delta = m3d.Orientation()
+        delta.rotate_xb(angle_rad)
+        new_orient = orient * delta
+        target = m3d.Transform(new_orient, pos)
+        self.robot.movel([float(v) for v in target.pose_vector], acc=acc, vel=vel, wait=False)
+
+
+    def yaw_deg(self, angle_deg, acc=0.2, vel=0.1):
+        """Rotate around tool's Y-axis (yaw)."""
+
+        angle_rad = math.radians(angle_deg)
+        pose = self.robot.getl()
+        pos = m3d.Vector(pose[:3])
+        orient = m3d.Orientation(pose[3:6])
+        delta = m3d.Orientation()
+        delta.rotate_yb(angle_rad)
+        new_orient = orient * delta
+        target = m3d.Transform(new_orient, pos)
+        self.robot.movel([float(v) for v in target.pose_vector], acc=acc, vel=vel, wait=False)
+
+
+    def roll_deg(self, angle_deg, acc=0.2, vel=0.1):
+        """Rotate around tool's Z-axis (roll)."""
+
+        angle_rad = math.radians(angle_deg)
+        pose = self.robot.getl()
+        pos = m3d.Vector(pose[:3])
+        orient = m3d.Orientation(pose[3:6])
+        delta = m3d.Orientation()
+        delta.rotate_zb(angle_rad)
+        new_orient = orient * delta
+        target = m3d.Transform(new_orient, pos)
+        self.robot.movel([float(v) for v in target.pose_vector], acc=acc, vel=vel, wait=False)
+
+
+    def rotate_base_deg(self, delta_deg, acc=0.2, vel=0.1):
+        delta_rad = math.radians(delta_deg)
+        joints = self.robot.getj()
+        joints[0] += delta_rad
+        self.robot.movej(joints, acc=acc, vel=vel, wait=False)
+
+
+    def go_home(self, acc=0.5, vel=0.5):
+        """Move robot to a known safe joint position."""
+
+        home_joint_angles = (0, -1.57, 0, -1.57, 0, 0)
+        self.robot.movej(home_joint_angles, acc=acc, vel=vel, wait=False)
+        time.sleep(9)
+        print("[UR5e] Moved to home position:", self.get_pose_vector())
+        time.sleep(1)
+
+
+
+    # -------------------------------------------------------------------
+    # POSE HELPER
+    # -------------------------------------------------------------------
+
+    def get_pose_vector(self):
+        """Return current pose as a 6-element float list."""
+
+        return self.robot.getl()
+
+
+
+    # -------------------------------------------------------------------
+    # SHUTDOWN
+    # -------------------------------------------------------------------
+
+    def close(self):
+        if self.robot:
+            self.robot.close()
+            print("[UR5e] Connection closed.")
