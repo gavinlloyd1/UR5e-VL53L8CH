@@ -4,7 +4,7 @@ from datetime import datetime
 
 # --- CONFIGURATION ---
 
-DATA_ROOT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/GUIs/MZAI_EVK_v1.0.1\data"
+DATA_ROOT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/GUIs/MZAI_EVK_v1.0.1/data"
 CSV_LOG_PATH = os.path.join(DATA_ROOT, "pose_log.csv")
 
 

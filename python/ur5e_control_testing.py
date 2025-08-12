@@ -4,7 +4,7 @@ import math
 import m3d
 import os
 from urx.urrobot import URRobot
-from vl53l8ch_gui_auto import data_logging_cycle, update_log_settings, vl53l8ch_gui_startup
+from vl53l8ch_gui_auto import data_logging_cycle, vl53l8ch_gui_startup
 from vl53l8ch_data import get_new_log_folder, find_data_csv, log_pose_to_csv
 
 
@@ -16,6 +16,7 @@ IP = "192.168.0.1"              # UR5e IP address (computer's IP address needs t
 TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
 MAX_STARTUP_ATTEMPS = 5
+
 
 # -------------------------------------------------------------------
 # VL53L8CH CONFIGURATION
@@ -200,11 +201,12 @@ def startup(ip=IP, tcp_m=TCP_M, payload_kg=PAYLOAD_KG, max_startup_attempts=MAX_
             return robot
         except Exception as e:
                     print(f"[UR5e] Connection failed: {e}")
-                    if attempt < max_attempts:
+                    if attempt < max_startup_attempts:
                         print(f"[UR5e] Retrying in {delay} seconds...")
                         time.sleep(delay)
                     else:
                         raise RuntimeError(f"[UR5e] Failed to connect after {max_startup_attempts} attempts.")
+
 
 # -------------------------------------------------------------------
 # MAIN

@@ -70,20 +70,20 @@ def vl53l8ch_gui_startup(num_locations=1):
     # Prompt user for number of bins, start bin, and sub sample
     while True:
         try:
-            num_bins = int(input("Enter the number of bins (1-18): "))
+            num_bins = int(input("\nEnter the number of bins (1-18): "))
         except ValueError:
             print("Invalid input. Using default of 18 bins")
             num_bins = 18
 
         try:
-            start_bin = int(input("Enter the start bin (0-127): "))
+            start_bin = int(input("\nEnter the start bin (0-127): "))
         except ValueError:
             print("Invalid input. Using default start bin of 0.")
             start_bin = 0
 
         try:
             max_sub_sample = (128 - start_bin) // num_bins
-            sub_sample = int(input(f"Enter the sub sample (1-{max_sub_sample}): "))
+            sub_sample = int(input(f"\nEnter the sub sample (1-{max_sub_sample}): "))
         except ValueError:
             print("Invalid input. Using default sub sample of 1.")
             sub_sample = 1
@@ -92,11 +92,9 @@ def vl53l8ch_gui_startup(num_locations=1):
         first_bin_mm = (start_bin + sub_sample / 2) * BIN_WIDTH_MM
         last_bin_mm = (start_bin + (num_bins - 1) * sub_sample + sub_sample / 2) * BIN_WIDTH_MM
 
-        print(f"CNH bin width: {BIN_WIDTH_MM * sub_sample} mm")
-        print(f"First bin center: {first_bin_mm:.2f} mm")
-        print(f"Last bin center : {last_bin_mm:.2f} mm")
+        print(f"\nCNH bin width: {BIN_WIDTH_MM * sub_sample} mm\nFirst bin center: {first_bin_mm:.2f} mm\nLast bin center: {last_bin_mm:.2f} mm")
 
-        confirm = input("Enter 'y' to confirm, or any other key to re-enter: ")
+        confirm = input("\nEnter 'y' to confirm, or any other key to re-enter: ")
         if confirm == 'y':
             break
 
@@ -105,12 +103,12 @@ def vl53l8ch_gui_startup(num_locations=1):
 
     while True:
         try:
-            num_frames = int(input(f"Enter the number of frames to log at each of {num_locations} locations: "))
+            num_frames = int(input(f"\nEnter the number of frames to log at each of {num_locations} locations: "))
         except ValueError:
             print("Invalid input. Using default of 10 frames per location.")
             num_frames = 10
 
-        confirm = input("Enter 'y' to confirm, or any other key to re-enter: ")
+        confirm = input("\nEnter 'y' to confirm, or any other key to re-enter: ")
         if confirm == 'y':
             break
 
