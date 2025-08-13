@@ -48,7 +48,7 @@ class UR5eController:
 
                 self.robot.set_tcp(tcp_m)
                 self.robot.set_payload(payload_kg, (0, 0, 0.1))
-                self.move_home()
+                self.move_home_safe()
 
                 # Monkey-patch broken getl()
                 def safe_getl():
@@ -173,15 +173,24 @@ class UR5eController:
         self.robot.movej(joints, acc=acc, vel=vel, wait=False)
 
 
-    def move_home(self, acc=0.5, vel=0.5):
-        """Move robot to a known safe joint position."""
+    def move_home_safe(self, acc=0.5, vel=0.5):
+        """Move robot to a known safe home joint position."""
 
         home_joint_angles = (0, -1.57, 0, -1.57, 0, 0)
         self.robot.movej(home_joint_angles, acc=acc, vel=vel, wait=False)
         time.sleep(9)
-        print("[UR5e] Moved to home position:", self.get_pose_vector())
+        print("[UR5e] Moved to safe home position:", self.get_pose_vector())
         time.sleep(1)
 
+    
+    def move_down_safe(self, acc=0.5, vel=0.5):
+        """Move robot to a known safe joint position, exactly 0.38 m lower than the home position."""
+
+        down_joint_angles = (-0.024213139210836232, -2.6243163547911585, 2.23765212694277, -2.7236091099181117, 0.024337446317076683, -0.031372849141256154)
+        self.robot.movej(down_joint_angles, acc=acc, vel=vel, wait=False)
+        time.sleep(9)
+        print("[UR5e] Moved to safe position:", self.get_pose_vector())
+        time.sleep(1)
 
 
     # -------------------------------------------------------------------

@@ -49,7 +49,7 @@ from vl53l8ch_data import get_new_log_folder, find_data_csv, log_pose_to_csv, in
 # -------------------------------------------------------------------
 
 # for ur5e_control.py
-IP = "192.168.0.1"              # UR5e IP address (computer's IP address needs to be 192.168.0.2)
+IP = "10.219.1.138"             # UR5e IP address
 TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
 MAX_STARTUP_ATTEMPTS = 5
@@ -156,6 +156,6 @@ if __name__ == "__main__":
 
     if robot:
         try:
-            robot.move_z_m(-0.5)
+            robot.move_down_safe()
         finally:
             robot.close()
