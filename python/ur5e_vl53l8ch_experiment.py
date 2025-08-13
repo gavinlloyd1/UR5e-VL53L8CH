@@ -14,11 +14,6 @@ Features:
 Current Implementation:
     - yaw_stepper(): Sweeps robot yaw in fixed-degree increments and logs data.
 
-Future Extensions:
-    • Additional movement patterns (pitch sweeps, XYZ translation grids, etc.).
-    • Multi-sensor experiment coordination.
-    • Configurable motion and logging parameters from external files.
-
 Key Components:
     UR5eController           - Motion and pose control for the UR5e robot.
     vl53l8ch_gui_automation  - Automates the VL53L8CH GUI for data logging.
@@ -44,6 +39,7 @@ from vl53l8ch_gui_automation import data_logging_cycle, vl53l8ch_gui_startup
 from vl53l8ch_data import get_new_log_folder, find_data_csv, log_pose_to_csv, ingest_run_to_pandas
 
 
+
 # -------------------------------------------------------------------
 # UR5e CONFIGURATION
 # -------------------------------------------------------------------
@@ -53,6 +49,7 @@ IP = "10.219.1.138"             # UR5e IP address
 TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
 MAX_STARTUP_ATTEMPTS = 5
+
 
 
 # -------------------------------------------------------------------
@@ -67,6 +64,7 @@ LOGGING_TIMEOUT = 300
 # for vl53l8ch_data.py
 DATA_ROOT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/GUIs/MZAI_EVK_v1.0.1/data"
 CSV_LOG_PATH = os.path.join(DATA_ROOT, "pose_log.csv")
+
 
 
 # -------------------------------------------------------------------
@@ -147,6 +145,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
     print(f"\n\nData logging at all {num_locations} locations complete!\n")
 
 
+
 # -------------------------------------------------------------------
 # MAIN
 # -------------------------------------------------------------------
@@ -157,10 +156,6 @@ if __name__ == "__main__":
     if robot:
         try:
             robot.move_down_safe()
-            time.sleep(5)
-            robot.rotate_pitch_deg(25)
-            time.sleep(5)
-            robot.rotate_roll_deg(25)
-            #yaw_stepper(robot=robot, edge_deg=-25)
+            yaw_stepper(robot=robot, edge_deg=-25)
         finally:
             robot.close()
