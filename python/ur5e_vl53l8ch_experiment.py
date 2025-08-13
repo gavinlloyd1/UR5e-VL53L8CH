@@ -114,15 +114,15 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
     current_yaw = start_angle
     for i in range(num_locations):
         pose_vector = robot.get_pose_vector()
-        print(f"\nPose {i+1}/{num_locations} ({movement_label} = {current_yaw}° ): {pose_vector}")
+        print(f"\n\nPose {i+1}/{num_locations} ({movement_label} = {current_yaw}°): {pose_vector}")
 
         # Track folders before logging
         initial_folders = set(os.listdir(DATA_ROOT))
 
         # Trigger one logging run
         print(f"\nStarting data logging at location {i+1}...")
-        success = data_logging_cycle(image_dir=IMAGE_DIR, num_frames=num_frames, image_timeout=IMAGE_TIMEOUT, logging_timeout=LOGGING_TIMEOUT)
-        print(f"Finished data logging at location {i+1}. Success = {success}")
+        data_logging_cycle(image_dir=IMAGE_DIR, num_frames=num_frames, image_timeout=IMAGE_TIMEOUT, logging_timeout=LOGGING_TIMEOUT)
+        print(f"Finished data logging at location {i+1}.")
 
         # Wait for new folder to appear, then locate it
         time.sleep(2)
@@ -144,7 +144,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
             print(f"Moved to position {i+2} ({current_yaw}°).")
             time.sleep(2)
 
-    print(f"\nData logging at all {num_locations} locations complete!")
+    print(f"\n\nData logging at all {num_locations} locations complete!\n")
 
 
 # -------------------------------------------------------------------
@@ -157,5 +157,10 @@ if __name__ == "__main__":
     if robot:
         try:
             robot.move_down_safe()
+            time.sleep(5)
+            robot.rotate_pitch_deg(25)
+            time.sleep(5)
+            robot.rotate_roll_deg(25)
+            #yaw_stepper(robot=robot, edge_deg=-25)
         finally:
             robot.close()

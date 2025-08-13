@@ -1,7 +1,8 @@
 """
 ur5e_control.py
 ---------------
-Encapsulates control of a Universal Robots UR5e robotic arm using the `urx` Python API.
+Encapsulates control of a Universal Robots UR5e robotic arm using the `urx` Python API
+and `math3d` for orientation math.
 
 This module defines the UR5eController class, which:
     • Handles TCP connection and retry logic to the UR5e.
@@ -9,16 +10,18 @@ This module defines the UR5eController class, which:
     • Provides high-level motion helpers for:
         - Cartesian translations (X/Y/Z)
         - Rotations in radians or degrees
-        - Tool-axis roll, pitch, and yaw
+        - Tool-axis roll (Zb), pitch (Xb), and yaw (Yb) using math3d transforms
         - Base joint rotation
-        - Moving to a predefined home position
+        - Moving to a predefined home or lowered safe position
     • Poses can be read as 6-element [X, Y, Z, Rx, Ry, Rz] lists.
     • Connection is cleaned up via the `close()` method.
 
 Key details:
     • Automatically retries connection a configurable number of times.
-    • Monkey-patches `getl()` to work around issues in certain urx versions by
+    • Monkey-patches `getl()` to work around issues in some urx versions by
       pulling pose data from the secondary monitor.
+    • Uses a private helper `_rotvec_to_matrix()` that implements Rodrigues’ rotation
+      formula to convert axis–angle rotation vectors to 3×3 matrices for math3d.
     • All motion helpers default to non-blocking moves (`wait=False`), so explicit
       delays are often needed between sequential commands.
 """
@@ -27,6 +30,7 @@ Key details:
 import time
 import math
 import m3d
+import numpy as np
 from urx.urrobot import URRobot
 
 
@@ -63,6 +67,25 @@ class UR5eController:
                     time.sleep(delay)
                 else:
                     raise RuntimeError(f"[UR5e] Failed to connect after {max_startup_attempts} attempts.")
+
+
+
+    # -------------------------------------------------------------------
+    # PRIVATE HELPERS
+    # -------------------------------------------------------------------
+
+    def _rotvec_to_matrix(self, v):
+        """Rodrigues' formula: rotation vector (axis-angle representation) -> 3x3 rotation matrix."""
+        
+        v = np.asarray(v, dtype=float)
+        theta = np.linalg.norm(v)
+        if theta < 1e-12:
+            return np.eye(3)
+        k = v / theta
+        K = np.array([[0, -k[2], k[1]],
+                      [k[2], 0, -k[0]],
+                      [-k[1], k[0], 0]])
+        return np.eye(3) + math.sin(theta) * K + (1 - math.cos(theta)) * (K @ K)
 
 
 
@@ -129,8 +152,9 @@ class UR5eController:
 
         angle_rad = math.radians(angle_deg)
         pose = self.robot.getl()
-        pos = m3d.Vector(pose[:3])
-        orient = m3d.Orientation(pose[3:6])
+        pos = m3d.Vector(*pose[:3])
+        R_current = self._rotvec_to_matrix(pose[3:6])
+        orient = m3d.Orientation(R_current)
         delta = m3d.Orientation()
         delta.rotate_xb(angle_rad)
         new_orient = orient * delta
@@ -143,8 +167,9 @@ class UR5eController:
 
         angle_rad = math.radians(angle_deg)
         pose = self.robot.getl()
-        pos = m3d.Vector(pose[:3])
-        orient = m3d.Orientation(pose[3:6])
+        pos = m3d.Vector(*pose[:3])
+        R_current = self._rotvec_to_matrix(pose[3:6])
+        orient = m3d.Orientation(R_current)
         delta = m3d.Orientation()
         delta.rotate_yb(angle_rad)
         new_orient = orient * delta
@@ -157,8 +182,9 @@ class UR5eController:
 
         angle_rad = math.radians(angle_deg)
         pose = self.robot.getl()
-        pos = m3d.Vector(pose[:3])
-        orient = m3d.Orientation(pose[3:6])
+        pos = m3d.Vector(*pose[:3])
+        R_current = self._rotvec_to_matrix(pose[3:6])
+        orient = m3d.Orientation(R_current)
         delta = m3d.Orientation()
         delta.rotate_zb(angle_rad)
         new_orient = orient * delta
@@ -167,6 +193,8 @@ class UR5eController:
 
 
     def rotate_base_deg(self, delta_deg, acc=0.2, vel=0.1):
+        """Rotate the robot's base joint only wihout considering the TCP."""
+
         delta_rad = math.radians(delta_deg)
         joints = self.robot.getj()
         joints[0] += delta_rad
@@ -191,6 +219,7 @@ class UR5eController:
         time.sleep(9)
         print("[UR5e] Moved to safe position:", self.get_pose_vector())
         time.sleep(1)
+
 
 
     # -------------------------------------------------------------------

@@ -71,10 +71,7 @@ def update_cnh_bin_settings(preset_name, start_bin, sub_sample, num_bins):
     preset["cnhSubSample"] = int(sub_sample)
     preset["cnhNumBins"] = int(num_bins)
 
-    print(f"Updated preset '{preset_name}' values:")
-    print(f"  cnhStartBin: {preset.get('cnhStartBin')}")
-    print(f"  cnhSubSample: {preset.get('cnhSubSample')}")
-    print(f"  cnhNumBins: {preset.get('cnhNumBins')}")
+    print(f"\nUpdated preset '{preset_name}' values:\n  cnhStartBin: {preset.get('cnhStartBin')}\n  cnhSubSample: {preset.get('cnhSubSample')}\n  cnhNumBins: {preset.get('cnhNumBins')}")
 
     with open(PRESET_PATH, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
