@@ -195,6 +195,6 @@ if __name__ == "__main__":
     if robot:
         try:
             robot.move_down_safe()
-            yaw_stepper(robot=robot, edge_deg=-3)
+            yaw_stepper(robot=robot, edge_deg=-25)
         finally:
             robot.close()
