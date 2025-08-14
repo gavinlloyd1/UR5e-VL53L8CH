@@ -189,7 +189,7 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
 # MAIN
 # -------------------------------------------------------------------
 
-if __name__ == "__main__":
+def main():
     robot = UR5eController(IP, TCP_M, PAYLOAD_KG, MAX_STARTUP_ATTEMPTS)
 
     if robot:
@@ -198,3 +198,7 @@ if __name__ == "__main__":
             yaw_stepper(robot=robot, edge_deg=-25)
         finally:
             robot.close()
+
+
+if __name__ == "__main__":
+    main()
