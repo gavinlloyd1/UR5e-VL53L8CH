@@ -69,7 +69,7 @@ LOGGING_TIMEOUT = 300
 DATA_ROOT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/GUIs/MZAI_EVK_v1.0.1/data"
 
 # all outputs go here
-OUTPUT_ROOT  = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/code/UR5e-VL53L8CH/data"
+OUTPUT_ROOT  = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data"
 os.makedirs(OUTPUT_ROOT, exist_ok=True)
 
 # Pose log, manifest, optional Parquet/CSV live under OUTPUT_ROOT
