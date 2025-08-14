@@ -33,9 +33,10 @@ Functions:
     _append_manifest_row(manifest_path, row_dict):
         Appends or updates a single manifest entry (CSV or Parquet) keyed by run_id.
 
-    ingest_run_to_pandas(csv_path, experiment_id, pose_vector, movement_label,
-                         movement_value, preset=None, parquet_dir=None, manifest_path=None,
-                         tz="America/Chicago", info_csv_path=None):
+    ingest_run_to_pandas(data_csv_path, info_csv_path=None, *,
+                     experiment_id, pose_vector, movement_label, movement_value,
+                     preset=None, parquet_dir=None, manifest_path=None, tz="America/Chicago",
+                     csv_dir=None, csv_compress=False, csv_master_path=None)
         Loads an EVK-generated data CSV into a wide pandas DataFrame, attaches run
         metadata (including parsed info CSV fields if available), optionally writes
         a Parquet copy (with Snappy compression when available), and updates a manifest.
@@ -76,6 +77,7 @@ import csv
 import hashlib
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 # -------------------------------------------------------------------
@@ -149,11 +151,13 @@ def find_data_and_info_csv(folder_path, timeout_s=10, poll_s=0.25):
             stable_d, sz_d = _is_stable_file(data_path, prev_sizes.get(data_path))
             stable_i, sz_i = _is_stable_file(info_path, prev_sizes.get(info_path))
             prev_sizes[data_path] = sz_d
-            prev_sizes[info_path] = sz_i
+            prev_sizes[info_path]  = sz_i
             if stable_d and stable_i:
+                time.sleep(0.1)  # tiny cushion for flushes
                 return data_path, info_path
         time.sleep(poll_s)
-    return data_path, info_path  # may be None(s)
+
+    return data_path, info_path
 
 
 # Centralized header helpers (avoid duplication and drift)
@@ -166,42 +170,43 @@ def pose_log_header(movement_label):
 
 def write_pose_log_header(csv_path, movement_label):
     """Write (or overwrite) the header for pose_log.csv."""
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     with open(csv_path, mode='w', newline='', encoding='utf-8') as f:
-        csv.writer(f).writerow(pose_log_header(movement_label))
+        csv.writer(f, quoting=csv.QUOTE_ALL).writerow(pose_log_header(movement_label))
 
 
-def _first_row(csv_path):
+def _read_header(csv_path):
     try:
         with open(csv_path, newline='', encoding='utf-8') as f:
-            return f.readline().strip()
+            r = csv.reader(f)
+            return next(r, [])
     except FileNotFoundError:
-        return ""
+        return []
 
 
-def log_pose_to_csv(csv_path, pose_index, movement_label, movement_value, pose_vector,
-                    csv_file_path, info_csv_path=None, log_folder=None):
+def log_pose_to_csv(csv_path, pose_index, movement_label, movement_value, pose_vector, csv_file_path, info_csv_path=None, log_folder=None):
     """Append pose + movement + pose vector + filenames/paths to master CSV."""
-    # sanity: file must already have a header (we no longer write it here)
-    header_line = _first_row(csv_path)
-    if not header_line:
+    header = _read_header(csv_path)
+    if not header:
         raise RuntimeError("pose_log.csv has no header. Call write_pose_log_header(...) before logging.")
-    if movement_label not in header_line.split(","):
-        raise RuntimeError(f"pose_log.csv header mismatch (missing '{movement_label}'). Did you rewrite the header?")
+    if movement_label not in header:
+        raise RuntimeError(f"pose_log.csv header mismatch (missing '{movement_label}'). Header has: {header}")
 
-    timestamp = datetime.now().isoformat(timespec='seconds')
+    ts = datetime.now(ZoneInfo("America/Chicago")).isoformat(timespec='seconds')
+
+    def _norm(p):
+        return None if p is None else os.path.normpath(p).replace("\\", "/")
 
     data_file_base = os.path.basename(csv_file_path) if csv_file_path else ""
     info_file_base = os.path.basename(info_csv_path) if info_csv_path else ""
-    log_folder_abs = os.path.abspath(log_folder) if log_folder else ""
 
+    row = [
+        int(pose_index), ts, movement_value,
+        *[float(v) for v in pose_vector],  # x,y,z,rx,ry,rz
+        data_file_base, info_file_base, _norm(log_folder)
+    ]
     with open(csv_path, mode='a', newline='', encoding='utf-8') as f:
-        csv.writer(f).writerow([
-            pose_index, timestamp, movement_value,
-            *pose_vector,
-            data_file_base,
-            info_file_base,
-            log_folder_abs
-        ])
+        csv.writer(f, quoting=csv.QUOTE_ALL).writerow(row)
 
     print(f"Logged pose {pose_index} to {os.path.basename(csv_path)}")
 
@@ -222,7 +227,7 @@ def _read_info_metadata(info_csv_path):
     if not info_csv_path or not os.path.exists(info_csv_path):
         return {}
 
-    info = pd.read_csv(info_csv_path, engine="python", encoding="utf-8", on_bad_lines="skip")
+    info = pd.read_csv(info_csv_path, engine="python", encoding="utf-8-sig", on_bad_lines="skip")
     md = {}
 
     if info.shape[1] == 2:
@@ -282,80 +287,99 @@ def _append_manifest_row(manifest_path, row_dict):
 
 
 def ingest_run_to_pandas(
-    csv_path,
+    data_csv_path,                # required (the data_*.csv produced by the EVK GUI)
+    info_csv_path=None,           # optional (the info_*.csv; may be None if GUI didn't emit it)
+    *,                            # everything after this is keyword-only (prevents positional shifts)
     experiment_id,
     pose_vector,
     movement_label,
     movement_value,
     preset=None,
-    parquet_dir=None,
-    manifest_path=None,
-    tz="America/Chicago",
-    info_csv_path=None,
+    parquet_dir=None,             # optional: directory to write a Parquet copy (engine required)
+    manifest_path=None,           # optional: CSV/Parquet manifest (extension selects format)
+    tz="America/Chicago",         # tz used for timestamps written by this function
+    csv_dir=None,                 # optional: directory to write a per-run WIDE CSV copy
+    csv_compress=False,           # if True, writes .csv.gz (gzip) instead of plain .csv
+    csv_master_path=None,         # path to a single big CSV to append all locations
+
 ):
     """
-    Load a single EVK-generated CSV into pandas (wide format), attach metadata columns,
-    and optionally save a Parquet copy and update a manifest.
+    Load a single EVK-generated data CSV into a *wide* pandas DataFrame, attach run metadata
+    (including parsed info CSV fields when available), and optionally persist:
+      - a per-run WIDE CSV copy (engine-free),
+      - a Parquet copy (requires pyarrow or fastparquet),
+      - a manifest entry (CSV or Parquet, chosen by file extension).
 
     Parameters
     ----------
-    csv_path : str
+    data_csv_path : str
         Path to the EVK-generated data_*.csv.
-    experiment_id : str
-        Identifier for the experiment/session (e.g., UUID or human-readable name).
-    pose_vector : list[float]
-        [x, y, z, rx, ry, rz] with units meters and radians.
-    movement_label : str
-        Name of the movement/sweep parameter (e.g., "yaw_deg").
-    movement_value : Any
-        Value of the movement parameter at capture (e.g., -20.0).
-    preset : dict, optional
-        CNH/logging settings applied (e.g., {"preset_name": "...", "cnh_start_bin": 4, ...}).
-        Only simple scalar values are attached as columns (strings, ints, floats, bools).
-    parquet_dir : str | None
-        If provided, writes a Parquet copy to {parquet_dir}/{run_id}.parquet.
-    manifest_path : str | None
-        If provided, creates/updates a manifest (CSV or Parquet based on extension).
-    tz : str
-        Local timezone name for host datetime localization (default: "America/Chicago").
     info_csv_path : str | None
-        Optional path to the GUI 'info_*.csv' to extract run-level metadata.
+        Optional path to the GUI info_*.csv whose fields will be folded into metadata.
+    experiment_id : str
+        Identifier for the experiment/session (e.g., "yaw_step_20250814_001122").
+    pose_vector : Sequence[float]
+        [x, y, z, rx, ry, rz] (meters, radians) captured at the time of logging.
+    movement_label : str
+        Name of the sweep parameter (e.g., "yaw_deg").
+    movement_value : Any
+        Value of the sweep parameter at capture time (e.g., -20.0).
+    preset : dict, optional
+        CNH/logging settings (e.g., {"preset_name": "...", "cnh_start_bin": 6, ...}).
+        Only simple scalars (str/int/float/bool/None) are attached as metadata columns.
+    parquet_dir : str | None
+        If provided, writes {parquet_dir}/{run_id}.parquet via save_parquet(...).
+    manifest_path : str | None
+        If provided, upserts a row in a manifest. ".csv" -> CSV; ".parquet" -> Parquet.
+    tz : str
+        Local timezone for timestamps produced here (default "America/Chicago").
+    csv_dir : str | None
+        If provided, writes a per-run WIDE CSV (engine-free) to {csv_dir}/{run_id}.csv[.gz].
+    csv_compress : bool
+        If True, writes gzip-compressed CSV (.csv.gz).
 
     Returns
     -------
     dict
         {
           "run_id": str,
-          "df": pandas.DataFrame,       # the full wide DataFrame (metadata columns first)
+          "df": pandas.DataFrame,       # full wide DataFrame (metadata columns first)
+          "csv_path": Optional[str],    # path to per-run CSV (if csv_dir provided)
           "parquet_path": Optional[str],
           "manifest_row": Optional[dict],
         }
 
     Notes
     -----
-    - This function is idempotent with respect to a given CSV file path, size, and mtime.
-      Calling it again for the same CSV yields the same run_id and updates (not duplicates)
-      the manifest entry.
-    - Measurement columns from the EVK are left exactly as-is. No reshaping is performed.
+    - Idempotent per data file: run_id is derived from absolute path, size, and mtime.
+    - EVK measurement columns are left *as-is* (wide format). Only metadata is prepended.
     """
-    
-    abs_csv = os.path.abspath(csv_path)
+
+    # --- Resolve paths and basic validation
+    abs_csv = os.path.abspath(data_csv_path)
     if not os.path.exists(abs_csv):
         raise FileNotFoundError(f"CSV not found: {abs_csv}")
 
+    # Small helper to avoid reading large files into RAM for hashing
+    def _sha1(path):
+        h = hashlib.sha1()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):  # 1 MiB chunks
+                h.update(chunk)
+        return h.hexdigest()[:12]
+
     run_id = derive_run_id(abs_csv)
 
-    # Read the CSV "as-is" (wide) with a forgiving engine
+    # --- Load the EVK CSV (wide) forgivingly
     df = pd.read_csv(abs_csv, engine="python", encoding="utf-8", on_bad_lines="skip")
 
-    # Best-effort parse a few time fields, honoring tz
+    # --- Parse common time columns (best effort; non-fatal if it fails)
     try:
         df = parse_time_columns(df, tz=tz)
     except Exception:
-        # non-fatal
         pass
 
-    # Provenance / metadata
+    # --- Build run-level metadata
     log_folder = os.path.abspath(os.path.dirname(abs_csv))
     info_abs = os.path.abspath(info_csv_path) if info_csv_path else ""
 
@@ -373,49 +397,105 @@ def ingest_run_to_pandas(
         "log_folder": log_folder,
         "data_csv": abs_csv,
         "info_csv": info_abs,
-        "data_sha1": hashlib.sha1(open(abs_csv, "rb").read()).hexdigest()[:12],
+        "data_sha1": _sha1(abs_csv),
     }
 
-    # If we have an info CSV, add its checksum and parsed fields
+    # --- Fold in metadata from info_*.csv if present
     if info_abs and os.path.exists(info_abs):
-        meta["info_sha1"] = hashlib.sha1(open(info_abs, "rb").read()).hexdigest()[:12]
+        meta["info_sha1"] = _sha1(info_abs)
         try:
-            meta.update(_read_info_metadata(info_abs))
+            # utf-8-sig handles BOM if the GUI ever writes one
+            info_md = _read_info_metadata(info_abs)
+            if isinstance(info_md, dict):
+                meta.update(info_md)
         except Exception as e:
             print(f"Warning: could not parse info CSV metadata: {e}")
 
-    # If a preset dict was passed, copy only simple scalar values
+    # --- Copy selected preset values (scalars only) into metadata
     if isinstance(preset, dict):
         for k, v in preset.items():
             if isinstance(v, (str, int, float, bool)) or v is None:
                 meta[k] = v
 
-    # Prepend metadata columns (keep EVK data intact)
+    # --- Prepend metadata columns without touching EVK columns
     for k, v in reversed(list(meta.items())):
         df.insert(0, k, v)
 
-    # Optional Parquet
+    # --- Optional per-run wide CSV (engine-free)
+    csv_out_path = None
+    if csv_dir:
+        os.makedirs(csv_dir, exist_ok=True)
+        ext = ".csv.gz" if csv_compress else ".csv"
+        csv_out_path = os.path.join(csv_dir, f"{run_id}{ext}")
+        to_csv_kwargs = {"index": False, "encoding": "utf-8"}
+        if csv_compress:
+            to_csv_kwargs["compression"] = "gzip"
+        df.to_csv(csv_out_path, **to_csv_kwargs)
+
+    # --- Optional Parquet via helper (skips automatically if no engine)
     parquet_path = None
     if parquet_dir:
-        os.makedirs(parquet_dir, exist_ok=True)
-        parquet_path = os.path.join(parquet_dir, f"{run_id}.parquet")
-        try:
-            df.to_parquet(parquet_path, compression="snappy", index=False)
-        except Exception:
-            df.to_parquet(parquet_path, index=False)
+        parquet_path = save_parquet(df, parquet_dir, run_id)
 
-    # Optional manifest row (include a quick schema fingerprint)
+    # --- Optional: append wide rows to a single experiment-wide CSV
+    master_csv_path = None
+    if csv_master_path:
+        master_csv_path = append_wide_to_master_csv(df, csv_master_path)
+
+    # --- Manifest row (schema fingerprint helps detect EVK layout changes)
     manifest_row = {
         **meta,
+        "csv_path": csv_out_path or "",
         "parquet_path": parquet_path or "",
+        "master_csv_path": master_csv_path or "",
         "n_rows": len(df),
         "n_cols": len(df.columns),
-        "schema_hash": hash_column_names(df.columns),  # NEW, you already defined it
+        "schema_hash": hash_column_names(df.columns),
+        "ingested_at": datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds"),
     }
     if manifest_path:
         _append_manifest_row(manifest_path, manifest_row)
 
-    return {"run_id": run_id, "df": df, "parquet_path": parquet_path, "manifest_row": manifest_row}
+    return {
+        "run_id": run_id,
+        "df": df,
+        "csv_path": csv_out_path,
+        "parquet_path": parquet_path,
+        "manifest_row": manifest_row,
+        "master_csv_path": master_csv_path,
+    }
+
+
+def append_wide_to_master_csv(df, master_csv_path):
+    """
+    Append df rows to a master wide CSV. If the master doesn't exist, write header + rows.
+    If it exists, align to its columns (fill missing with ""), and drop truly new columns.
+    Returns the master path.
+    """
+    os.makedirs(os.path.dirname(master_csv_path), exist_ok=True)
+
+    if not os.path.exists(master_csv_path):
+        df.to_csv(master_csv_path, index=False, encoding="utf-8")
+        return master_csv_path
+
+    # Read existing header only (fast)
+    with open(master_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        existing_cols = next(reader, [])
+
+    # Ensure all master columns exist in df; fill missing
+    missing_in_df = [c for c in existing_cols if c not in df.columns]
+    for c in missing_in_df:
+        df[c] = ""
+
+    # Warn if df has extra columns that the master doesn't know about
+    extra_cols = [c for c in df.columns if c not in existing_cols]
+    if extra_cols:
+        print(f"[master_csv] Dropping {len(extra_cols)} new columns not in master: {extra_cols[:6]}{'...' if len(extra_cols)>6 else ''}")
+
+    # Append only columns in the master, in the same order
+    df[existing_cols].to_csv(master_csv_path, mode="a", header=False, index=False, encoding="utf-8")
+    return master_csv_path
 
 
 def derive_run_id(abs_csv_path):
