@@ -37,7 +37,7 @@ import importlib
 
 from ur5e_control import UR5eController
 from vl53l8ch_gui_automation import data_logging_cycle, vl53l8ch_gui_startup
-import vl53l8ch_data as vdata
+import vl53l8ch_data_collection as vdata
 importlib.reload(vdata)
 
 

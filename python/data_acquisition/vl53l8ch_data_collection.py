@@ -1,5 +1,5 @@
 """
-vl53l8ch_data.py
+vl53l8ch_data_collection.py
 ----------------
 Helper functions for managing, logging, and ingesting VL53L8CH experiment data.
 
