@@ -266,6 +266,21 @@ def _resolve_save_path(save: Optional[str | Path], default_filename: str, defaul
     return save
 
 
+def _tag_for_region_zones(region: str = "all", zones: Optional[Iterable[int]] = None) -> str:
+    """
+    Build a short filename tag from region/zones so that zone-filtered plots don't
+    overwrite region-only plots when 'save' points to a directory.
+    """
+    if zones:
+        zs = sorted({int(z) for z in zones})
+        if len(zs) == 1:
+            return f"z{zs[0]}"
+        if len(zs) <= 8:
+            return "z" + "_".join(str(z) for z in zs)
+        return f"z{zs[0]}-{zs[-1]}_{len(zs)}zones"
+    return (region or "all")
+
+
 def pick_nearest_movement_value(an: AnalysisState, value: float):
     """Return the nearest available movement_value to 'value' in the dataset."""
     return min(an.movement_values, key=lambda x: abs(x - float(value)))
@@ -305,7 +320,8 @@ def heatmap(
     ax.set_ylabel("Y (zone row)")
     fig.tight_layout()
 
-    outpath = _resolve_save_path(save, f"cnh_bin_sum_heatmap_{mv}_{region}.png", an.input_csv.parent / "analysis")
+    tag = _tag_for_region_zones(region, zones)
+    outpath = _resolve_save_path(save, f"cnh_bin_sum_heatmap_{mv}_{tag}.png", an.input_csv.parent / "analysis")
     if outpath:
         fig.savefig(outpath, dpi=160)
     if show:
@@ -338,9 +354,10 @@ def total_cnh_bin_sum_per_location(
         ax.plot(sum_loc["movement_value"], sum_loc["sum_bins"], marker="o")
         ax.set_xlabel("Location (movement_value)")
         ax.set_ylabel("Total sum of CNH bin values")
-        ax.set_title(f"Total CNH Bin Sum per Location  [{region}]")
+        ax.set_title( f"Total CNH Bin Sum per Location [{'zones=' + ','.join(map(str, zones)) if zones is not None else region}]")
         fig.tight_layout()
-        outpath = _resolve_save_path(save, f"cnh_bin_sum_per_location_{region}.png", an.input_csv.parent / "analysis")
+        tag = _tag_for_region_zones(region, zones)
+        outpath = _resolve_save_path(save, f"cnh_bin_sum_per_location_{tag}.png", an.input_csv.parent / "analysis")
         if outpath:
             fig.savefig(outpath, dpi=160)
         if show:
@@ -390,7 +407,8 @@ def cnh_histograms_for_location(
         fig.subplots_adjust(bottom=0.25)
     fig.tight_layout()
 
-    outpath = _resolve_save_path(save, f"cnh_at_location_{mv}_{region}.png", an.input_csv.parent / "analysis")
+    tag = _tag_for_region_zones(region, zones)
+    outpath = _resolve_save_path(save, f"cnh_at_location_{mv}_{tag}.png", an.input_csv.parent / "analysis")
     if outpath:
         fig.savefig(outpath, dpi=160, bbox_inches="tight")
     if show:
@@ -534,7 +552,8 @@ def heatmap_signal_strength(
     ax.set_ylabel("Y (zone row)")
     fig.tight_layout()
 
-    outpath = _resolve_save_path(save, f"signal_strength_heatmap_{mv}_{region}.png", an.input_csv.parent / "analysis")
+    tag = _tag_for_region_zones(region, zones)
+    outpath = _resolve_save_path(save, f"signal_strength_heatmap_{mv}_{tag}.png", an.input_csv.parent / "analysis")
     if outpath:
         fig.savefig(outpath, dpi=160)
     if show:
@@ -566,9 +585,10 @@ def total_signal_strength_per_location(
         ax.plot(sig_loc["movement_value"], sig_loc["signal"], marker="o")
         ax.set_xlabel("Location (movement_value)")
         ax.set_ylabel("Total average signal strength")
-        ax.set_title(f"Total Signal Strength per Location  [{region}]")
+        ax.set_title(f"Total Signal Strength per Location [{'zones=' + ','.join(map(str, zones)) if zones is not None else region}]")
         fig.tight_layout()
-        outpath = _resolve_save_path(save, f"signal_strength_per_location_{region}.png", an.input_csv.parent / "analysis")
+        tag = _tag_for_region_zones(region, zones)
+        outpath = _resolve_save_path(save, f"signal_strength_per_location_{tag}.png", an.input_csv.parent / "analysis")
         if outpath:
             fig.savefig(outpath, dpi=160)
         if show:
@@ -629,7 +649,7 @@ def compare_region_signal_strength_per_location(
 if __name__ == "__main__":
     # Set your default input path, then run:
     #   python vl53l8ch_data_analysis.py
-    DEFAULT_INPUT = r"C:\Users\lloy7803\OneDrive - University of St. Thomas\2025_Summer\shared\Koerner, Lucas J.'s files - lloyd_gavin\data\experiment_20250814_004115\yaw_step_20250814_004115__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
 
     try:
         an = load_analysis(DEFAULT_INPUT)
@@ -641,19 +661,19 @@ if __name__ == "__main__":
         total_cnh_bin_sum_per_location(an, region="inner36", save=an.input_csv.parent / "analysis")
         total_cnh_bin_sum_per_location(an, region="inner16", save=an.input_csv.parent / "analysis")
         total_cnh_bin_sum_per_location(an, region="inner4", save=an.input_csv.parent / "analysis")
+        total_cnh_bin_sum_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
         compare_region_bin_sums_per_location(an, save=an.input_csv.parent / "analysis")
 
         total_signal_strength_per_location(an, region="all", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner36", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner16", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner4", save=an.input_csv.parent / "analysis")
+        total_signal_strength_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
         compare_region_signal_strength_per_location(an, save=an.input_csv.parent / "analysis")
 
-        cnh_histograms_for_location(an, movement_value=0, zones = [24, 25, 26, 27, 28, 29, 30, 31], save=an.input_csv.parent / "analysis")
+        cnh_histograms_for_location(an, movement_value=0, zones=[24, 25, 26, 27, 28, 29, 30, 31], save=an.input_csv.parent / "analysis")
 
-        cnh_histograms_for_zone(an, zone=27, normalize=False, save=an.input_csv.parent / "analysis")
-
-        cnh_histograms_for_zone(an, zone=27, locations=[-15, -7, 0, 7, 15], normalize=False, show=True)
+        cnh_histograms_for_zone(an, zone=27, locations=[-15, -7, 0, 7, 15], normalize=False, save=an.input_csv.parent / "analysis")
 
 
 
