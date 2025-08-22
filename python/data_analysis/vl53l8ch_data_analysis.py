@@ -859,10 +859,10 @@ def detect_transition_bounds_offset_yield(
 
 if __name__ == "__main__":
     # for Windows
-    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
 
     # for Mac
-    DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
+    #DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
 
     try:
         an = load_analysis(DEFAULT_INPUT)
