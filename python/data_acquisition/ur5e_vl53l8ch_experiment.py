@@ -47,8 +47,8 @@ importlib.reload(vdata)
 # -------------------------------------------------------------------
 
 # for ur5e_control.py
-IP = "10.219.1.138"             # UR5e IP address
-TCP_M = (0, 0, 0.150, 0, 0, 0)  # Tool center point [m]
+IP = "10.219.1.138"                 # UR5e IP address
+TCP_M = (0, -0.020, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
 MAX_STARTUP_ATTEMPTS = 5
 
@@ -184,6 +184,95 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
     print(f"\n\nData logging at all {num_locations} locations complete!\n")
 
 
+def roll_stepper(robot: UR5eController, movement_label: str = "roll_deg"):
+    """
+    Rotates the UR5e robot's tool ROLL to four fixed positions (opposite sign from
+    the previous version), triggering VL53L8CH ToF sensor data logging at each position.
+
+    Positions (in order): +180°, +90°, 0°, -90°.
+
+    Notes:
+      - Waits 5 seconds after EACH move (including the initial move) to allow the robot
+        to reach position before capturing data.
+    """
+    # Opposite-polarity sequence
+    positions = [180.0, 90.0, 0.0, -90.0]
+
+    # Move to starting position (+180°)
+    robot.rotate_roll_deg(positions[0])
+    time.sleep(10)  # allow time to reach start
+
+    # GUI startup
+    num_locations = len(positions)
+    num_frames = vl53l8ch_gui_startup(image_dir=IMAGE_DIR, num_locations=num_locations)
+
+    # Logging setup
+    vdata.write_pose_log_header(CSV_LOG_PATH, movement_label)
+    experiment_id = f"roll_step_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    WIDE_CSV_PATH = os.path.join(OUTPUT_ROOT, f"{experiment_id}__wide.csv")
+    print(f"\nAggregating all locations to: {WIDE_CSV_PATH}\n")
+
+    current_roll = positions[0]
+
+    for i, target in enumerate(positions):
+        if i > 0:
+            delta = target - current_roll
+            robot.rotate_roll_deg(delta)  # relative step to next target
+            current_roll = target
+            print(f"Moved to position {i+1} ({current_roll}°).")
+            time.sleep(5)  # ensure the move fully settles BEFORE logging
+
+        pose_vector = robot.get_pose_vector()
+        print(f"\n\nPose {i+1}/{num_locations} ({movement_label} = {current_roll}°): {pose_vector}")
+
+        # Track folders before logging
+        initial_folders = set(os.listdir(DATA_ROOT))
+
+        # Trigger one logging run
+        print(f"\nStarting data logging at location {i+1}...")
+        data_logging_cycle(
+            image_dir=IMAGE_DIR,
+            num_frames=num_frames,
+            image_timeout=IMAGE_TIMEOUT,
+            logging_timeout=LOGGING_TIMEOUT
+        )
+        print(f"Finished data logging at location {i+1}.")
+
+        # Wait for new folder and both .csv's to appear, then locate them
+        time.sleep(2)
+        new_folder = vdata.get_new_log_folder(DATA_ROOT, initial_folders)
+        if new_folder:
+            data_csv, info_csv = vdata.find_data_and_info_csv(new_folder, timeout_s=30, poll_s=0.25)
+            if data_csv:
+                vdata.log_pose_to_csv(
+                    CSV_LOG_PATH, i+1, movement_label, current_roll, pose_vector,
+                    data_csv, info_csv_path=info_csv, log_folder=new_folder
+                )
+                try:
+                    result = vdata.ingest_run_to_pandas(
+                        data_csv_path=data_csv,
+                        info_csv_path=info_csv,
+                        experiment_id=experiment_id,
+                        pose_vector=pose_vector,
+                        movement_label=movement_label,
+                        movement_value=current_roll,
+                        parquet_dir=None,
+                        manifest_path=MANIFEST_PATH,
+                        csv_dir=None,
+                        csv_compress=False,
+                        csv_master_path=WIDE_CSV_PATH
+                    )
+                    print(f"Ingested run_id={result['run_id']} -> master={result.get('master_csv_path') or 'N/A'}")
+                except Exception as e:
+                    print(f"Pandas ingest failed for {data_csv}: {e}")
+            else:
+                print(f"No data_*.csv found in {new_folder}")
+        else:
+            print("No new log folder detected.")
+
+    print(f"\n\nData logging at all {num_locations} locations complete!\n")
+
+
 
 # -------------------------------------------------------------------
 # MAIN
@@ -195,7 +284,8 @@ def main():
     if robot:
         try:
             robot.move_down_safe()
-            yaw_stepper(robot=robot, edge_deg=-25)
+            time.sleep(5)
+            roll_stepper(robot)
         finally:
             robot.close()
 

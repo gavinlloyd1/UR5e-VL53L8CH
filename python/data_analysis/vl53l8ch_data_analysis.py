@@ -572,10 +572,18 @@ def total_signal_strength_per_location(
     show: bool = False,
     transition_detection: Optional[dict | bool] = None,
     transition_kwargs: Optional[dict] = None,
+    plot_smoothed: bool = False,           # <— NEW: overlay smoothed values
+    smooth_window: int = 5,                # <— NEW: smoothing window for overlay
+    smooth_method: str = "median",         # <— NEW: "median" or "mean"
 ) -> pd.DataFrame:
     """
     Total **average signal strength** vs. location (sums per-zone averages across selected zones).
     Returns DataFrame ['movement_value','signal'].
+
+    Args (new):
+        plot_smoothed: If True, overlay the smoothed series used for detection-style views.
+        smooth_window: Rolling window (odd int recommended) for the overlay smoothing.
+        smooth_method: 'median' (robust, default) or 'mean' for the overlay smoothing.
     """
     df = an.signal_loc_zone
     allowed = set(_apply_region_and_zones(an.zones, region=region, zones=zones))
@@ -584,7 +592,18 @@ def total_signal_strength_per_location(
 
     if save is not None or show:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(sig_loc["movement_value"], sig_loc["signal"], marker="o")
+
+        # Raw summed signal (your existing line)
+        ax.plot(sig_loc["movement_value"], sig_loc["signal"], marker="o", label="Raw")
+
+        # Optional: smoothed overlay for visibility (uses same helper as detector)
+        if plot_smoothed:
+            x_vals = sig_loc["movement_value"].values
+            y_vals = sig_loc["signal"].values
+            y_s    = _rolling_smooth(y_vals, window=smooth_window, method=smooth_method)
+            ax.plot(x_vals, y_s, linewidth=2, alpha=0.8,
+                    label=f"Smoothed ({smooth_method}, w={smooth_window})")
+
         # Optional: compute and overlay transition bounds (offset-yield method)
         if transition_detection:
             try:
@@ -598,21 +617,23 @@ def total_signal_strength_per_location(
                     th_lo = det["theta_lo"]; th_hi = det["theta_hi"]; W = det["width"]
                     ax.axvline(th_lo, linestyle="--", color="tab:red", alpha=0.7, label="Lower bound")
                     ax.axvline(th_hi, linestyle="--", color="tab:green", alpha=0.7, label="Upper bound")
-                    ax.fill_betweenx([sig_loc["signal"].min(), sig_loc["signal"].max()], th_lo, th_hi, alpha=0.08, color="tab:blue")
+                    ax.fill_betweenx([sig_loc["signal"].min(), sig_loc["signal"].max()],
+                                     th_lo, th_hi, alpha=0.08, color="tab:blue")
                     # annotate width
                     midy = 0.05 * (sig_loc["signal"].max() - sig_loc["signal"].min()) + sig_loc["signal"].min()
-                    ax.annotate(f"width ≈ {W:.2f}°", xy=((th_lo+th_hi)/2, midy), xytext=(0, -20),
+                    ax.annotate(f"width ≈ {W:.2f}°",
+                                xy=((th_lo+th_hi)/2, midy), xytext=(0, -20),
                                 textcoords="offset points", ha="center", va="top",
                                 bbox=dict(boxstyle="round,pad=0.2", fc="w", alpha=0.6))
-                    ax.legend(loc="best")
-            except Exception as _e:
-                # keep plot even if detection fails
+            except Exception:
                 pass
 
         ax.set_xlabel("Location (movement_value)")
         ax.set_ylabel("Total average signal strength")
         ax.set_title(f"Total Signal Strength per Location [{'zones=' + ','.join(map(str, zones)) if zones is not None else region}]")
+        ax.legend(loc="best")
         fig.tight_layout()
+
         tag = _tag_for_region_zones(region, zones)
         outpath = _resolve_save_path(save, f"signal_strength_per_location_{tag}.png", an.input_csv.parent / "analysis")
         if outpath:
@@ -733,6 +754,7 @@ def detect_transition_bounds_offset_yield(
     min_streak: int = 3,
     smooth_window: int = 5,
     smooth_method: str = "median",
+    debug: bool = False,
 ):
     """
     Data-driven transition detection inspired by offset-yield:
@@ -741,46 +763,61 @@ def detect_transition_bounds_offset_yield(
       3) Lower bound = first forward crossing of (left line + delta)
          Upper bound = first backward crossing of (right line - delta)
 
-    Returns dict with keys:
-      {'theta_lo','theta_hi','width','delta','step','sigma_L','sigma_R','left_fit','right_fit'}
-    or None if detection fails.
+    Args:
+        x, y: Arrays of location (e.g., degrees) and total signal (same length).
+        left_window, right_window: Angle spans (inclusive) assumed to be in the low and high plateaus.
+        k: Noise guard multiplier (≈3σ is a good default).
+        r: Small backstop fraction of the step (e.g., 0.02–0.05).
+        min_streak: Require this many consecutive points outside the tolerance before triggering.
+        smooth_window: Rolling window for light pre-smoothing (set 1/None to disable).
+        smooth_method: "median" or "mean" smoothing.
+        debug: If True, returns a short dict explaining why detection failed.
+
+    Returns:
+        dict with keys:
+            {'theta_lo','theta_hi','width','delta','step','sigma_L','sigma_R',
+             'left_fit','right_fit','x_sorted','y_smooth'}
+        or None (or a debug dict if debug=True) when detection fails.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
 
-    # sort by x to ensure monotonic order
+    # Sort by x to ensure monotone traversal
     order = np.argsort(x)
-    x = x[order]; y = y[order]
+    x = x[order]
+    y = y[order]
 
-    # optional smoothing for detection only
+    # Optional smoothing (for detection only)
     y_s = _rolling_smooth(y, window=smooth_window, method=smooth_method)
 
-    # select window masks
+    # Window masks for baseline fits
     Lmask = (x >= left_window[0]) & (x <= left_window[1])
     Rmask = (x >= right_window[0]) & (x <= right_window[1])
 
     if Lmask.sum() < max(5, min_streak) or Rmask.sum() < max(5, min_streak):
-        return None
+        return ({"reason": "insufficient_window_points",
+                 "L_count": int(Lmask.sum()), "R_count": int(Rmask.sum())}
+                if debug else None)
 
-    # robust fits
+    # Robust linear fits on the two plateaus
     aL, bL, sigmaL, _ = _robust_line_fit(x[Lmask], y_s[Lmask])
     aR, bR, sigmaR, _ = _robust_line_fit(x[Rmask], y_s[Rmask])
 
-    # step estimate from window means (robust to slope via fit predictions at window centers)
+    # Step estimate via predictions at window centers (robust to mild slopes)
     xL_mid = 0.5 * (left_window[0] + left_window[1])
     xR_mid = 0.5 * (right_window[0] + right_window[1])
     yL_mid = aL * xL_mid + bL
     yR_mid = aR * xR_mid + bR
     step = yR_mid - yL_mid
 
-    # vertical offset
-    noise = np.sqrt(((sigmaL**2 + sigmaR**2) / 2.0))
+    # Vertical offset: noise-aware with small fractional backstop
+    noise = np.sqrt((sigmaL**2 + sigmaR**2) / 2.0)
     delta = max(k * noise, r * abs(step))
 
-    # forward crossing for lower bound
+    # ---------- Lower bound (forward crossing of left baseline + delta) ----------
     start_idx = np.searchsorted(x, left_window[1], side="left")
-    # baseline residual relative to left line
-    def residual_L(idx):
+
+    def residual_L(idx: int) -> float:
         return y_s[idx] - (aL * x[idx] + bL)
 
     lo_idx = None
@@ -789,15 +826,18 @@ def detect_transition_bounds_offset_yield(
         if residual_L(i) > delta:
             streak += 1
             if streak >= min_streak:
-                lo_idx = i - (min_streak - 1)  # first index in streak
+                lo_idx = i - (min_streak - 1)  # first index in the qualifying streak
                 break
         else:
             streak = 0
 
     if lo_idx is None or lo_idx <= 0:
-        return None
+        return ({"reason": "no_forward_crossing",
+                 "delta": float(delta),
+                 "max_residual_L": float(np.max(y_s[start_idx:] - (aL * x[start_idx:] + bL))) if start_idx < len(x) else float("nan")}
+                if debug else None)
 
-    # interpolate lower theta at r == delta between lo_idx-1 and lo_idx
+    # Interpolate to the exact crossing with residual == delta
     i0 = max(lo_idx - 1, 0)
     r0 = residual_L(i0)
     r1 = residual_L(lo_idx)
@@ -807,27 +847,32 @@ def detect_transition_bounds_offset_yield(
         t = (delta - r0) / (r1 - r0)
         theta_lo = x[i0] + t * (x[lo_idx] - x[i0])
 
-    # backward crossing for upper bound
-    end_idx = np.searchsorted(x, right_window[0], side="left")
-    def residual_R(idx):
-        return (aR * x[idx] + bR) - y_s[idx]  # want y <= line - delta => line - y >= delta
+    # ---------- Upper bound (backward crossing of right baseline - delta) ----------
+    end_idx = np.searchsorted(x, left_window[1], side="left") # Using the end of the LEFT window (e.g., -5°) is a safe left limit.
+
+    def residual_R(idx: int) -> float:
+        # Want y <= line - delta  <=>  line - y >= delta
+        return (aR * x[idx] + bR) - y_s[idx]
 
     hi_idx = None
     streak = 0
-    for i in range(len(x)-1, end_idx-1, -1):
+    for i in range(len(x) - 1, end_idx - 1, -1):
         if residual_R(i) > delta:
             streak += 1
             if streak >= min_streak:
-                hi_idx = i + (min_streak - 1)  # first (from right) index in streak
+                hi_idx = i  # leftmost index of the qualifying streak (fix)
                 break
         else:
             streak = 0
 
     if hi_idx is None or hi_idx >= len(x):
-        return None
+        return ({"reason": "no_backward_crossing",
+                 "delta": float(delta),
+                 "max_residual_R": float(np.max((aR * x[end_idx:] + bR) - y_s[end_idx:])) if end_idx < len(x) else float("nan")}
+                if debug else None)
 
-    # interpolate upper theta at residual_R == delta between hi_idx and hi_idx+1 (going right)
-    j1 = min(hi_idx + 1, len(x)-1)
+    # Interpolate to the exact crossing with residual == delta (moving right)
+    j1 = min(hi_idx + 1, len(x) - 1)
     r0 = residual_R(hi_idx)
     r1 = residual_R(j1)
     if r1 == r0:
@@ -838,7 +883,9 @@ def detect_transition_bounds_offset_yield(
 
     width = theta_hi - theta_lo
     if not np.isfinite(width) or width <= 0:
-        return None
+        return ({"reason": "nonpositive_width",
+                 "theta_lo": float(theta_lo), "theta_hi": float(theta_hi)}
+                if debug else None)
 
     return {
         "theta_lo": float(theta_lo),
@@ -853,13 +900,17 @@ def detect_transition_bounds_offset_yield(
         "x_sorted": x.tolist(),
         "y_smooth": y_s.tolist(),
     }
+
+
+
 # --------------------------------------------------------------------
 # MAIN
 # --------------------------------------------------------------------
 
 if __name__ == "__main__":
     # for Windows
-    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
+    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
 
     # for Mac
     #DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
@@ -881,7 +932,7 @@ if __name__ == "__main__":
         total_signal_strength_per_location(an, region="inner36", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner16", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner4", save=an.input_csv.parent / "analysis")
-        total_signal_strength_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
+        #total_signal_strength_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
         compare_region_signal_strength_per_location(an, save=an.input_csv.parent / "analysis")
 
         cnh_histograms_for_location(an, movement_value=0, zones=[24, 25, 26, 27, 28, 29, 30, 31], save=an.input_csv.parent / "analysis")
@@ -893,17 +944,39 @@ if __name__ == "__main__":
             zones=[27],
             save=an.input_csv.parent / "analysis",
             show=True,
+            plot_smoothed=True,            # <— NEW
+            smooth_window=5,               # keep small vs. edge width
+            smooth_method="median",        # robust + edge-preserving
             transition_detection=True,
             transition_kwargs=dict(
-                left_window=(-25, -5),   # tune if needed
+                left_window=(-25, -5),
                 right_window=(5, 25),
-                k=3.0,                   # noise guard (≈3σ)
-                r=0.03,                  # small fraction of step as backstop (3%)
-                min_streak=3,            # require 3 consecutive out-of-band points
-                smooth_window=5,         # light rolling median
+                k=3.0, r=0.02, min_streak=3,
+                smooth_window=5,           # consider matching these
                 smooth_method="median",
             ),
         )
+
+
+        total_signal_strength_per_location(
+            an,
+            zones=[28],
+            save=an.input_csv.parent / "analysis",
+            show=True,
+            plot_smoothed=True,            # <— NEW
+            smooth_window=5,               # keep small vs. edge width
+            smooth_method="median",        # robust + edge-preserving
+            transition_detection=True,
+            transition_kwargs=dict(
+                left_window=(-25, -5),
+                right_window=(0, 25),
+                k=3.0, r=0.02, min_streak=3,
+                smooth_window=5,           # consider matching these
+                smooth_method="median",
+            ),
+        )
+
+
 
         print("[analysis] Finished example run. Outputs under:", an.input_csv.parent / "analysis")
 
