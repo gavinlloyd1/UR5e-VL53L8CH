@@ -13,6 +13,7 @@ Features:
 
 Current Implementation:
     - yaw_stepper(): Sweeps robot yaw in fixed-degree increments and logs data.
+    - roll_stepper()
 
 Key Components:
     UR5eController           - Motion and pose control for the UR5e robot.
@@ -186,14 +187,14 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
 
 def roll_stepper(robot: UR5eController, movement_label: str = "roll_deg"):
     """
-    Rotates the UR5e robot's tool ROLL to four fixed positions (opposite sign from
-    the previous version), triggering VL53L8CH ToF sensor data logging at each position.
+    Rotates the UR5e robot's tool ROLL to four fixed positions, 
+    triggering VL53L8CH ToF sensor data logging at each position.
 
     Positions (in order): +180°, +90°, 0°, -90°.
 
     Notes:
-      - Waits 5 seconds after EACH move (including the initial move) to allow the robot
-        to reach position before capturing data.
+      - at 0°, the sensor is vertical relative to the ground
+      - facing outward from the sensor, positive angles roll right, negative angles roll left
     """
     # Opposite-polarity sequence
     positions = [180.0, 90.0, 0.0, -90.0]

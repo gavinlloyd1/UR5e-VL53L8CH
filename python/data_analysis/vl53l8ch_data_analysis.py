@@ -689,6 +689,72 @@ def compare_region_signal_strength_per_location(
     return pd.concat(frames, ignore_index=True)
 
 
+def export_roll_cnh_heatmaps(
+    an: AnalysisState,
+    expected_positions=(180, 90, 0, -90),   # matches your roll_stepper signs
+    *,
+    region="all",
+    zones=None
+):
+    """
+    Save one CNH bin-sum heatmap for each roll location.
+    Each expected angle is snapped to the nearest movement_value in the CSV.
+    """
+    # Snap + dedupe while preserving order
+    ordered = []
+    for v in expected_positions:
+        mv = pick_nearest_movement_value(an, v)
+        if mv not in ordered:
+            ordered.append(mv)
+
+    out_dir = an.input_csv.parent / "analysis"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for mv in ordered:
+        heatmap(
+            an,
+            movement_value=mv,
+            region=region,
+            zones=zones,
+            save=out_dir,   # directory → auto filename: cnh_bin_sum_heatmap_{mv}_{tag}.png
+            show=False,
+        )
+    return ordered
+
+
+def export_roll_signal_heatmaps(
+    an: AnalysisState,
+    expected_positions=(180, 90, 0, -90),   # matches your roll_stepper signs
+    *,
+    region="all",
+    zones=None
+):
+    """
+    Save one signal-strength heatmap for each roll location.
+    Each expected angle is snapped to the nearest movement_value in the CSV.
+    """
+    # Snap + dedupe while preserving order
+    ordered = []
+    for v in expected_positions:
+        mv = pick_nearest_movement_value(an, v)
+        if mv not in ordered:
+            ordered.append(mv)
+
+    out_dir = an.input_csv.parent / "analysis"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for mv in ordered:
+        heatmap_signal_strength(
+            an,
+            movement_value=mv,
+            region=region,
+            zones=zones,
+            save=out_dir,   # directory → auto filename: signal_strength_heatmap_{mv}_{tag}.png
+            show=False,
+        )
+    return ordered
+
+
 
 # --------------------------------------------------------------------
 # Transition detection (offset-yield style)
@@ -910,7 +976,8 @@ def detect_transition_bounds_offset_yield(
 if __name__ == "__main__":
     # for Windows
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
-    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
+    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250901_214559/roll_step_20250901_214559__wide.csv"
 
     # for Mac
     #DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
@@ -918,6 +985,7 @@ if __name__ == "__main__":
     try:
         an = load_analysis(DEFAULT_INPUT)
 
+        '''
         heatmap(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
         heatmap_signal_strength(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
 
@@ -977,8 +1045,27 @@ if __name__ == "__main__":
         )
 
 
-
         print("[analysis] Finished example run. Outputs under:", an.input_csv.parent / "analysis")
+        '''
+
+        cnh_positions = export_roll_cnh_heatmaps(
+            an,
+            expected_positions=(180, 90, 0, -90),
+            region="all",
+            zones=None
+        )
+        print("[analysis] CNH heatmaps saved for:", cnh_positions)
+
+        sig_positions = export_roll_signal_heatmaps(
+            an,
+            expected_positions=(180, 90, 0, -90),
+            region="all",
+            zones=None
+        )
+        print("[analysis] Signal-strength heatmaps saved for:", sig_positions)
+
+        print("[analysis] Outputs under:", an.input_csv.parent / "analysis")
+
 
     except Exception as e:
         print('[analysis] Example run failed:', e)
