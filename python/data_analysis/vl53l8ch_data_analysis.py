@@ -572,18 +572,19 @@ def total_signal_strength_per_location(
     show: bool = False,
     transition_detection: Optional[dict | bool] = None,
     transition_kwargs: Optional[dict] = None,
-    plot_smoothed: bool = False,           # <— NEW: overlay smoothed values
-    smooth_window: int = 5,                # <— NEW: smoothing window for overlay
-    smooth_method: str = "median",         # <— NEW: "median" or "mean"
+    plot_smoothed: bool = False,           # <— overlay smoothed values (optional)
+    smooth_window: int = 5,                # <— smoothing window for overlay
+    smooth_method: str = "median",         # <— "median" or "mean"
 ) -> pd.DataFrame:
     """
     Total **average signal strength** vs. location (sums per-zone averages across selected zones).
     Returns DataFrame ['movement_value','signal'].
 
-    Args (new):
+    Args (optional):
         plot_smoothed: If True, overlay the smoothed series used for detection-style views.
         smooth_window: Rolling window (odd int recommended) for the overlay smoothing.
         smooth_method: 'median' (robust, default) or 'mean' for the overlay smoothing.
+        transition_detection: If truthy, draws offset-yield style bounds using detect_transition_bounds_offset_yield.
     """
     df = an.signal_loc_zone
     allowed = set(_apply_region_and_zones(an.zones, region=region, zones=zones))
@@ -593,7 +594,7 @@ def total_signal_strength_per_location(
     if save is not None or show:
         fig, ax = plt.subplots(figsize=(8, 4))
 
-        # Raw summed signal (your existing line)
+        # Raw summed signal
         ax.plot(sig_loc["movement_value"], sig_loc["signal"], marker="o", label="Raw")
 
         # Optional: smoothed overlay for visibility (uses same helper as detector)
@@ -826,24 +827,8 @@ def detect_transition_bounds_offset_yield(
     Data-driven transition detection inspired by offset-yield:
       1) Fit robust lines on low and high 'flat' windows
       2) Choose vertical offset delta = max(k*noise, r*step)
-      3) Lower bound = first forward crossing of (left line + delta)
-         Upper bound = first backward crossing of (right line - delta)
-
-    Args:
-        x, y: Arrays of location (e.g., degrees) and total signal (same length).
-        left_window, right_window: Angle spans (inclusive) assumed to be in the low and high plateaus.
-        k: Noise guard multiplier (≈3σ is a good default).
-        r: Small backstop fraction of the step (e.g., 0.02–0.05).
-        min_streak: Require this many consecutive points outside the tolerance before triggering.
-        smooth_window: Rolling window for light pre-smoothing (set 1/None to disable).
-        smooth_method: "median" or "mean" smoothing.
-        debug: If True, returns a short dict explaining why detection failed.
-
-    Returns:
-        dict with keys:
-            {'theta_lo','theta_hi','width','delta','step','sigma_L','sigma_R',
-             'left_fit','right_fit','x_sorted','y_smooth'}
-        or None (or a debug dict if debug=True) when detection fails.
+      3) Lower bound = first forward crossing of (left baseline + delta)
+         Upper bound = first backward crossing of (right baseline - delta)
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -892,7 +877,7 @@ def detect_transition_bounds_offset_yield(
         if residual_L(i) > delta:
             streak += 1
             if streak >= min_streak:
-                lo_idx = i - (min_streak - 1)  # first index in the qualifying streak
+                lo_idx = i - (min_streak - 1)
                 break
         else:
             streak = 0
@@ -914,10 +899,9 @@ def detect_transition_bounds_offset_yield(
         theta_lo = x[i0] + t * (x[lo_idx] - x[i0])
 
     # ---------- Upper bound (backward crossing of right baseline - delta) ----------
-    end_idx = np.searchsorted(x, left_window[1], side="left") # Using the end of the LEFT window (e.g., -5°) is a safe left limit.
+    end_idx = np.searchsorted(x, left_window[1], side="left")
 
     def residual_R(idx: int) -> float:
-        # Want y <= line - delta  <=>  line - y >= delta
         return (aR * x[idx] + bR) - y_s[idx]
 
     hi_idx = None
@@ -926,7 +910,7 @@ def detect_transition_bounds_offset_yield(
         if residual_R(i) > delta:
             streak += 1
             if streak >= min_streak:
-                hi_idx = i  # leftmost index of the qualifying streak (fix)
+                hi_idx = i
                 break
         else:
             streak = 0
@@ -937,7 +921,7 @@ def detect_transition_bounds_offset_yield(
                  "max_residual_R": float(np.max((aR * x[end_idx:] + bR) - y_s[end_idx:])) if end_idx < len(x) else float("nan")}
                 if debug else None)
 
-    # Interpolate to the exact crossing with residual == delta (moving right)
+    # Interpolate to exact crossing
     j1 = min(hi_idx + 1, len(x) - 1)
     r0 = residual_R(hi_idx)
     r1 = residual_R(j1)
@@ -970,22 +954,262 @@ def detect_transition_bounds_offset_yield(
 
 
 # --------------------------------------------------------------------
+# Sigmoid helpers — Gaussian CDF (lmfit)
+# --------------------------------------------------------------------
+
+# These helpers provide an alternative sigmoid model based on the Gaussian CDF (erf),
+# and use the 'lmfit' package for non-linear least-squares. They are kept separate
+# so you can compare different edge models and fitting toolchains.
+
+try:
+    from lmfit import Model
+except Exception:
+    Model = None
+
+from scipy.special import erf, erfinv
+
+
+def gauss_cdf(x, x0, sigma, y_lo, y_hi):
+    """
+    Gaussian-CDF (error-function) ramp:
+        y(x) = y_lo + (y_hi - y_lo) * 0.5 * (1 + erf((x - x0) / (sqrt(2) * sigma)))
+    """
+    x = np.asarray(x, float)
+    sigma = np.maximum(np.asarray(sigma, float), 1e-12)
+    t = (x - x0) / (np.sqrt(2.0) * sigma)
+    return y_lo + (y_hi - y_lo) * 0.5 * (1.0 + erf(t))
+
+
+def _initial_guess_gauss_cdf(x, y):
+    """
+    Robust initial guesses for (x0, sigma, y_lo, y_hi) that work for
+    both increasing *and* decreasing edges.
+
+    Strategy:
+      • plateaus from medians of the first/last ~10% of samples (by x)
+      • smoothed series → find all mid-level crossings; pick the one
+        with the largest |dy/dx| (the real transition)
+      • local 10–90 crossings around that same edge → sigma
+    """
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    m = np.isfinite(x) & np.isfinite(y)
+    x, y = x[m], y[m]
+    if x.size < 5:
+        return dict(x0=float(np.nanmedian(x) if x.size else 0.0),
+                    sigma=float(np.nanstd(x) or 1.0),
+                    y_lo=float(np.nanmin(y) if y.size else 0.0),
+                    y_hi=float(np.nanmax(y) if y.size else 1.0))
+
+    # sort by x
+    o = np.argsort(x); x, y = x[o], y[o]
+
+    # plateau levels from ends
+    k = max(3, int(0.10 * len(y)))
+    yL = float(np.nanmedian(y[:k]))
+    yR = float(np.nanmedian(y[-k:]))
+    y_hi = max(yL, yR)
+    y_lo = min(yL, yR)
+
+    # smoothed signal and mid level
+    y_s = _rolling_smooth(y, window=5, method="median")
+    mid = 0.5 * (y_hi + y_lo)
+
+    # find crossings of mid level
+    d = y_s - mid
+    cross_idx = np.where(d[:-1] * d[1:] <= 0)[0]
+    if cross_idx.size == 0:
+        # fallback: closest point to mid
+        i = int(np.nanargmin(np.abs(d)))
+        x0 = float(x[i])
+        # crude width from global range
+        C = 2.0 * np.sqrt(2.0) * float(erfinv(0.8))
+        sigma = (np.nanstd(x) or 1.0) / 4.0
+        return dict(x0=x0, sigma=float(max(1e-6, sigma)), y_lo=y_lo, y_hi=y_hi)
+
+    # pick the crossing with largest local |dy/dx|
+    g = np.abs(np.gradient(y_s, x))
+    best = int(cross_idx[np.argmax(g[cross_idx + 1])])
+
+    # interpolate x at mid level
+    def _x_at_level(i, level):
+        x0i, x1i = x[i], x[i+1]
+        y0i, y1i = y_s[i], y_s[i+1]
+        return float(x0i + (level - y0i) * (x1i - x0i) / (y1i - y0i + 1e-12))
+
+    x0 = _x_at_level(best, mid)
+
+    # 10–90 levels and local crossings in a small window around `best`
+    y10 = y_lo + 0.10 * (y_hi - y_lo)
+    y90 = y_lo + 0.90 * (y_hi - y_lo)
+    j0 = max(0, best - 10)
+    j1 = min(len(x) - 2, best + 10)
+
+    def _local_cross(level):
+        dd = (y_s[j0:j1+2] - level)
+        jj = np.where(dd[:-1] * dd[1:] <= 0)[0]
+        if jj.size:
+            j = int(jj[np.argmin(np.abs(dd[jj]))])  # nearest segment
+            return _x_at_level(j0 + j, level)
+        # fallback: global interpolation on smoothed curve
+        return float(np.interp(level, y_s, x))
+
+    x10 = _local_cross(y10)
+    x90 = _local_cross(y90)
+    lo, hi = (min(x10, x90), max(x10, x90))
+
+    # sigma from 10–90 width
+    C = 2.0 * np.sqrt(2.0) * float(erfinv(0.8))
+    sigma = max(1e-6, (hi - lo) / C)
+
+    return dict(x0=float(x0), sigma=float(sigma), y_lo=float(y_lo), y_hi=float(y_hi))
+
+
+def _x_filter_mask(x: np.ndarray,
+                   *,
+                   x_range: Optional[Tuple[float, float]] = None,
+                   exclude: Optional[List[Tuple[float, float]]] = None) -> np.ndarray:
+    """Build a boolean mask to keep only desired x-range and drop excluded intervals."""
+    x = np.asarray(x, float)
+    m = np.isfinite(x)
+    if x_range is not None:
+        lo, hi = float(x_range[0]), float(x_range[1])
+        m &= (x >= lo) & (x <= hi)
+    if exclude:
+        for a, b in exclude:
+            a, b = float(a), float(b)
+            if a > b:
+                a, b = b, a
+            m &= ~((x >= a) & (x <= b))
+    return m
+
+
+def _steepest_x(x: np.ndarray, y: np.ndarray, smooth_window: int = 5, smooth_method: str = "median") -> float:
+    """
+    Return the x-position of the steepest slope (max |dy/dx|), after light smoothing.
+    Used as an initial guess for the edge center.
+    """
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    if x.size < 2:
+        return float(np.nanmedian(x) if x.size else 0.0)
+
+    # light, robust smoothing to avoid chasing noise
+    y_s = _rolling_smooth(y, window=smooth_window, method=smooth_method)
+    # gradient w.r.t. x to handle nonuniform spacing
+    dy_dx = np.gradient(y_s, x)
+    idx = int(np.nanargmax(np.abs(dy_dx)))
+    return float(x[idx])
+
+
+def _sigma_from_10_90_width(width):
+    # width_10_90 = 2*sqrt(2)*sigma*erfinv(0.8)
+    return float(width) / (2.0 * np.sqrt(2.0) * float(erfinv(0.8)))
+
+
+def fit_gauss_cdf_lmfit(
+    x, y, *,
+    robust=True,
+    min_width=None,              # None -> auto = 2 * median Δx
+    use_auto_fit_band=True,      # fit only around the edge (like the logistic helper)
+    band_expand_points=6,        # ~ a dozen points total
+    x_range: Optional[Tuple[float, float]] = None,           # <-- added
+    exclude: Optional[List[Tuple[float, float]]] = None,     # <-- added
+):
+    """
+    Fit the Gaussian-CDF edge with lmfit, with two practical guards:
+      - sigma has a floor set by a minimum 10–90% width (from sampling)
+      - the fit is restricted to a band around the steepest slope
+    You can also constrain the domain via x_range and/or exclude sub-intervals.
+    """
+    if Model is None:
+        raise RuntimeError("lmfit is not available to perform Gaussian-CDF fitting.")
+
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+
+    # Clip/exclude x before anything else
+    keep = _x_filter_mask(x, x_range=x_range, exclude=exclude)
+    x, y = x[keep], y[keep]
+    if x.size < 5:
+        raise RuntimeError("Not enough points remain after x filtering for a stable fit.")
+
+    # Initial guesses and sigma floor from sampling
+    p0 = _initial_guess_gauss_cdf(x, y)
+    x0_guess = p0["x0"]
+
+    dx_med = float(np.median(np.diff(np.sort(x)))) if x.size > 1 else 1.0
+    if min_width is None:
+        min_width = max(2.0 * dx_med, 1e-6)   # ≈ two samples
+    sigma_min = max(1e-6, _sigma_from_10_90_width(min_width))
+
+    # Optional: restrict fit to a band around x0
+    if use_auto_fit_band:
+        order = np.argsort(x)
+        xs = x[order]; ys = y[order]
+        idx0 = int(np.searchsorted(xs, x0_guess))
+        i0 = max(0, idx0 - band_expand_points)
+        i1 = min(len(xs) - 1, idx0 + band_expand_points)
+        mask_sorted = np.zeros_like(xs, dtype=bool); mask_sorted[i0:i1+1] = True
+        mask = np.zeros_like(x, dtype=bool); mask[order] = mask_sorted
+        x_fit, y_fit = x[mask], y[mask]
+    else:
+        x_fit, y_fit = x, y
+
+    # Build and fit model
+    mod = Model(gauss_cdf)
+    params = mod.make_params(**p0)
+    params['sigma'].min = sigma_min
+    params['x0'].min = float(np.min(x)) - 0.5 * abs(np.ptp(x))
+    params['x0'].max = float(np.max(x)) + 0.5 * abs(np.ptp(x))
+
+    fit_method = 'least_squares' if robust else 'leastsq'
+    fit_kws = dict(loss='soft_l1', f_scale=1.0) if robust else None
+
+    result = mod.fit(
+        np.asarray(y_fit, float),
+        params,
+        x=np.asarray(x_fit, float),
+        method=fit_method,
+        fit_kws=fit_kws,
+        nan_policy='omit',
+    )
+
+    xv = float(result.params['x0'].value)
+    sv = float(abs(result.params['sigma'].value))
+    ylo = float(result.params['y_lo'].value)
+    yhi = float(result.params['y_hi'].value)
+
+    a = np.sqrt(2.0) * sv * float(erfinv(0.8))
+    x10 = xv - a
+    x90 = xv + a
+    width = x90 - x10
+    slope = (yhi - ylo) / (np.sqrt(2.0 * np.pi) * sv)
+
+    metrics = dict(x0=xv, sigma=sv, y_lo=ylo, y_hi=yhi,
+                   x10=x10, x90=x90, width_10_90=width, slope_at_x0=slope,
+                   sigma_min=sigma_min, dx_median=dx_med, used_band=bool(use_auto_fit_band),
+                   band_expand_points=int(band_expand_points),
+                   x_filter=dict(x_range=x_range, exclude=exclude))
+    return result, metrics
+
+
+# --------------------------------------------------------------------
 # MAIN
 # --------------------------------------------------------------------
 
 if __name__ == "__main__":
     # for Windows
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
-    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
-    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250901_214559/roll_step_20250901_214559__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
+    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250901_214559/roll_step_20250901_214559__wide.csv"
 
     # for Mac
     #DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
 
     try:
         an = load_analysis(DEFAULT_INPUT)
-
-        '''
+        
+        # Basic plots (optional)
         heatmap(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
         heatmap_signal_strength(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
 
@@ -993,79 +1217,65 @@ if __name__ == "__main__":
         total_cnh_bin_sum_per_location(an, region="inner36", save=an.input_csv.parent / "analysis")
         total_cnh_bin_sum_per_location(an, region="inner16", save=an.input_csv.parent / "analysis")
         total_cnh_bin_sum_per_location(an, region="inner4", save=an.input_csv.parent / "analysis")
-        #total_cnh_bin_sum_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
+        total_cnh_bin_sum_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
         compare_region_bin_sums_per_location(an, save=an.input_csv.parent / "analysis")
 
         total_signal_strength_per_location(an, region="all", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner36", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner16", save=an.input_csv.parent / "analysis")
         total_signal_strength_per_location(an, region="inner4", save=an.input_csv.parent / "analysis")
-        #total_signal_strength_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
+        total_signal_strength_per_location(an, zones=[27], save=an.input_csv.parent / "analysis")
         compare_region_signal_strength_per_location(an, save=an.input_csv.parent / "analysis")
 
         cnh_histograms_for_location(an, movement_value=0, zones=[24, 25, 26, 27, 28, 29, 30, 31], save=an.input_csv.parent / "analysis")
-
         cnh_histograms_for_zone(an, zone=27, locations=[-15, -7, 0, 7, 15], normalize=False, save=an.input_csv.parent / "analysis")
 
-        total_signal_strength_per_location(
-            an,
-            zones=[27],
-            save=an.input_csv.parent / "analysis",
-            show=True,
-            plot_smoothed=True,            # <— NEW
-            smooth_window=5,               # keep small vs. edge width
-            smooth_method="median",        # robust + edge-preserving
-            transition_detection=True,
-            transition_kwargs=dict(
-                left_window=(-25, -5),
-                right_window=(5, 25),
-                k=3.0, r=0.02, min_streak=3,
-                smooth_window=5,           # consider matching these
-                smooth_method="median",
-            ),
-        )
-
-
-        total_signal_strength_per_location(
-            an,
-            zones=[28],
-            save=an.input_csv.parent / "analysis",
-            show=True,
-            plot_smoothed=True,            # <— NEW
-            smooth_window=5,               # keep small vs. edge width
-            smooth_method="median",        # robust + edge-preserving
-            transition_detection=True,
-            transition_kwargs=dict(
-                left_window=(-25, -5),
-                right_window=(0, 25),
-                k=3.0, r=0.02, min_streak=3,
-                smooth_window=5,           # consider matching these
-                smooth_method="median",
-            ),
-        )
-
-
         print("[analysis] Finished example run. Outputs under:", an.input_csv.parent / "analysis")
-        '''
 
-        cnh_positions = export_roll_cnh_heatmaps(
-            an,
-            expected_positions=(180, 90, 0, -90),
-            region="all",
-            zones=None
-        )
-        print("[analysis] CNH heatmaps saved for:", cnh_positions)
+        # ---- Gaussian CDF (lmfit): estimate 10–90% width on a single-zone sum ----
+        sig_loc = total_signal_strength_per_location(an, zones=[27], save=None, show=False)
+        x = sig_loc["movement_value"].values
+        y = sig_loc["signal"].values
 
-        sig_positions = export_roll_signal_heatmaps(
-            an,
-            expected_positions=(180, 90, 0, -90),
-            region="all",
-            zones=None
-        )
-        print("[analysis] Signal-strength heatmaps saved for:", sig_positions)
+        try:
+            # Guardrails are inside fit_gauss_cdf_lmfit (sigma floor + edge band)
+            result, metrics = fit_gauss_cdf_lmfit(
+                x, y,
+                robust=True,
+                x_range=(-10, 15),          # <— keep only this span
+                # exclude=[(2, 4)]          # <— optional holes, if you ever want them
+            )
 
-        print("[analysis] Outputs under:", an.input_csv.parent / "analysis")
+            print("10–90 edges (CDF):", (metrics['x10'], metrics['x90']), "  width:", metrics['width_10_90'])
 
+            # Plot the fit and mark 10%/90% edges
+            xs = np.linspace(np.nanmin(x), np.nanmax(x), 400)
+            yhat = gauss_cdf(xs, metrics['x0'], metrics['sigma'], metrics['y_lo'], metrics['y_hi'])
+
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.plot(x, y, 'o-', label="Raw")
+            ax.plot(xs, yhat, '-', label="Gaussian CDF fit")
+            ax.axvline(metrics['x10'], ls='--', color='tab:blue', alpha=0.7, label="10% edge")
+            ax.axvline(metrics['x90'], ls='--', color='tab:blue', alpha=0.7, label="90% edge")
+            midx = 0.5 * (metrics['x10'] + metrics['x90'])
+            midy = gauss_cdf(midx, metrics['x0'], metrics['sigma'], metrics['y_lo'], metrics['y_hi'])
+            ax.annotate(f"width ≈ {metrics['width_10_90']:.2f}",
+                        xy=(midx, midy),
+                        xytext=(0, -25), textcoords="offset points", ha="center",
+                        bbox=dict(boxstyle="round,pad=0.2", fc="w", alpha=0.7))
+            ax.set_xlabel("Location (movement_value)")
+            ax.set_ylabel("Total average signal strength")
+            ax.set_title("Gaussian CDF fit with 10–90% width")
+            ax.legend(loc="best")
+            fig.tight_layout()
+
+            outpath = _resolve_save_path(an.input_csv.parent / "analysis", "signal_cdf_fit.png", an.input_csv.parent / "analysis")
+            if outpath:
+                fig.savefig(outpath, dpi=160)
+            plt.show()
+            plt.close(fig)
+        except Exception as e:
+            print("Gaussian-CDF fit failed:", e)
 
     except Exception as e:
         print('[analysis] Example run failed:', e)
