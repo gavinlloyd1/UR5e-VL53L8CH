@@ -13,12 +13,12 @@ Features:
 
 Current Implementation:
     - yaw_stepper(): Sweeps robot yaw in fixed-degree increments and logs data.
-    - roll_stepper()
+    - roll_stepper(): Sweeps robot roll in fixed-degree increments and logs data.
 
 Key Components:
-    UR5eController           - Motion and pose control for the UR5e robot.
-    vl53l8ch_gui_automation  - Automates the VL53L8CH GUI for data logging.
-    vl53l8ch_data            - Detects new log folders and writes master CSV logs.
+    UR5eController            - Motion and pose control for the UR5e robot.
+    vl53l8ch_gui_automation   - Automates the VL53L8CH GUI for data logging.
+    vl53l8ch_data_collection  - Detects new log folders and writes master CSV logs.
 
 Usage:
     Run this script directly to perform a configured experiment.
@@ -285,8 +285,8 @@ def main():
     if robot:
         try:
             robot.move_down_safe()
-            time.sleep(5)
-            roll_stepper(robot)
+            #time.sleep(5)
+            #roll_stepper(robot)
         finally:
             robot.close()
 
