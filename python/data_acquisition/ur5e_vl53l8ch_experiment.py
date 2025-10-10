@@ -49,7 +49,7 @@ importlib.reload(vdata)
 
 # for ur5e_control.py
 IP = "10.219.1.138"                 # UR5e IP address
-TCP_M = (0, -0.020, 0.150, 0, 0, 0)  # Tool center point [m]
+TCP_M = (0, -0.025, 0.150, 0, 0, 0)  # Tool center point [m]
 PAYLOAD_KG = 0.1
 MAX_STARTUP_ATTEMPTS = 5
 
@@ -187,24 +187,18 @@ def yaw_stepper(robot: UR5eController, edge_deg: float, step_deg: float = 1.0, m
 
 def roll_stepper(robot: UR5eController, movement_label: str = "roll_deg"):
     """
-    Rotates the UR5e robot's tool ROLL to four fixed positions, 
-    triggering VL53L8CH ToF sensor data logging at each position.
-
-    Positions (in order): +180°, +90°, 0°, -90°.
-
-    Notes:
-      - at 0°, the sensor is vertical relative to the ground
-      - facing outward from the sensor, positive angles roll right, negative angles roll left
+    Rotate to +180°, then step -1° at a time to -179° (inclusive).
+    Total samples: 360 (180..-179). No sample at -180°.
     """
-    # Opposite-polarity sequence
-    positions = [180.0, 90.0, 0.0, -90.0]
+    # Build target sequence: 180, 179, ..., -179  (360 points)
+    positions = [float(a) for a in range(180, -180, -1)]  # stops before -180
 
-    # Move to starting position (+180°)
-    robot.rotate_roll_deg(positions[0])
-    time.sleep(10)  # allow time to reach start
+    # Move to starting position (+180°) and settle
+    robot.rotate_roll_deg(180.0)   # absolute target via your API semantics (same as old start)
+    time.sleep(10)
 
     # GUI startup
-    num_locations = len(positions)
+    num_locations = len(positions)  # 360
     num_frames = vl53l8ch_gui_startup(image_dir=IMAGE_DIR, num_locations=num_locations)
 
     # Logging setup
@@ -213,15 +207,17 @@ def roll_stepper(robot: UR5eController, movement_label: str = "roll_deg"):
     WIDE_CSV_PATH = os.path.join(OUTPUT_ROOT, f"{experiment_id}__wide.csv")
     print(f"\nAggregating all locations to: {WIDE_CSV_PATH}\n")
 
-    current_roll = positions[0]
+    # Track current roll; assume we are now at +180
+    current_roll = 180.0
 
     for i, target in enumerate(positions):
-        if i > 0:
-            delta = target - current_roll
-            robot.rotate_roll_deg(delta)  # relative step to next target
+        # Step to next target (skip move if already at first target)
+        delta = target - current_roll
+        if abs(delta) > 1e-9:
+            robot.rotate_roll_deg(delta)  # relative move, same as original
             current_roll = target
             print(f"Moved to position {i+1} ({current_roll}°).")
-            time.sleep(5)  # ensure the move fully settles BEFORE logging
+            time.sleep(5)  # settle before logging
 
         pose_vector = robot.get_pose_vector()
         print(f"\n\nPose {i+1}/{num_locations} ({movement_label} = {current_roll}°): {pose_vector}")
@@ -285,8 +281,8 @@ def main():
     if robot:
         try:
             robot.move_down_safe()
-            #time.sleep(5)
-            #roll_stepper(robot)
+            time.sleep(5)
+            roll_stepper(robot)
         finally:
             robot.close()
 
