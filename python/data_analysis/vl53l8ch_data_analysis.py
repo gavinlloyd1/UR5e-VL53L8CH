@@ -1200,8 +1200,10 @@ def fit_gauss_cdf_lmfit(
 if __name__ == "__main__":
     # for Windows
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
-    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
+    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250901_214559/roll_step_20250901_214559__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20251009_234705/roll_step_20251009_234705__wide.csv"
+
 
     # for Mac
     #DEFAULT_INPUT = Path("/Users/gavinlloyd/Library/CloudStorage/OneDrive-UniversityofSt.Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv")
@@ -1209,6 +1211,20 @@ if __name__ == "__main__":
     try:
         an = load_analysis(DEFAULT_INPUT)
         
+        # --- ROLL HEATMAPS EVERY 45° ---
+
+        angles_45deg = list(range(-180, 181, 45))  # [-180, -135, -90, ..., 180]
+
+        # Signal-strength heatmaps at 45° increments
+        export_roll_signal_heatmaps(an, expected_positions=angles_45deg, region="all", zones=None)
+
+        # --- CNH histogram for zone 27 at 0° roll ---
+        cnh_histograms_for_location(an, movement_value=0, zones=[27],
+                                    normalize=False,
+                                    save=an.input_csv.parent / "analysis/cnh_zone27_at_0deg.pdf")
+
+
+        '''
         # Basic plots (optional)
         heatmap(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
         heatmap_signal_strength(an, movement_value=0, region="all", save=an.input_csv.parent / "analysis")
@@ -1276,6 +1292,7 @@ if __name__ == "__main__":
             plt.close(fig)
         except Exception as e:
             print("Gaussian-CDF fit failed:", e)
+        '''
 
     except Exception as e:
         print('[analysis] Example run failed:', e)
