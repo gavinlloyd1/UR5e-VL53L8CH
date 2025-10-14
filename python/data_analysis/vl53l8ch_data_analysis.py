@@ -1202,7 +1202,8 @@ if __name__ == "__main__":
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_Summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250814_004115/yaw_step_20250814_004115__wide.csv"
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250821_220820/yaw_step_20250821_220820__wide.csv"
     #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20250901_214559/roll_step_20250901_214559__wide.csv"
-    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20251009_234705/roll_step_20251009_234705__wide.csv"
+    #DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20251009_234705/roll_step_20251009_234705__wide.csv"
+    DEFAULT_INPUT = r"C:/Users/lloy7803/OneDrive - University of St. Thomas/2025_summer/shared/Koerner, Lucas J.'s files - lloyd_gavin/data/experiment_20251013_232418/roll_step_20251013_232418__wide.csv"
 
 
     # for Mac
@@ -1218,11 +1219,13 @@ if __name__ == "__main__":
         # Signal-strength heatmaps at 45° increments
         export_roll_signal_heatmaps(an, expected_positions=angles_45deg, region="all", zones=None)
 
-        # --- CNH histogram for zone 27 at 0° roll ---
-        cnh_histograms_for_location(an, movement_value=0, zones=[27],
-                                    normalize=False,
-                                    save=an.input_csv.parent / "analysis/cnh_zone27_at_0deg.pdf")
-
+        # --- CNH histogram for zone 28 at 0° roll ---
+        cnh_histograms_for_location(an, movement_value=0, zones=[31], normalize=False, save=an.input_csv.parent / "analysis/cnh_zone28_at_0deg.pdf")
+        
+        # CNH histograms every 45° for zones 24–31 (PDFs)
+        angles_45 = list(range(-135, 181, 45))
+        for i in range(24, 32):  # 24..31 inclusive
+            cnh_histograms_for_zone(an, zone=i, locations=angles_45, normalize=False, save=an.input_csv.parent / f"analysis/cnh_zone{i}_every_45deg.pdf")
 
         '''
         # Basic plots (optional)
