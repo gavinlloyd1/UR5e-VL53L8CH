@@ -111,7 +111,7 @@ def vl53l8ch_gui_startup(image_dir, num_locations=1):
             num_bins = 18
 
         try:
-            start_bin = int(input("\nEnter the start bin (0-127): "))
+            start_bin = int(input(f"\nEnter the start bin (0-{128 - num_bins}): "))
         except ValueError:
             print("Invalid input. Using default start bin of 0.")
             start_bin = 0
