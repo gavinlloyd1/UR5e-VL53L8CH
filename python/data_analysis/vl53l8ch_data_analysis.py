@@ -1220,7 +1220,7 @@ if __name__ == "__main__":
         export_roll_signal_heatmaps(an, expected_positions=angles_45deg, region="all", zones=None)
 
         # --- CNH histogram for zone 28 at 0° roll ---
-        cnh_histograms_for_location(an, movement_value=0, zones=[31], normalize=False, save=an.input_csv.parent / "analysis/cnh_zone28_at_0deg.pdf")
+        cnh_histograms_for_location(an, movement_value=0, zones=[28], normalize=False, save=an.input_csv.parent / "analysis/cnh_zone28_at_0deg.pdf")
         
         # CNH histograms every 45° for zones 24–31 (PDFs)
         angles_45 = list(range(-135, 181, 45))

@@ -282,7 +282,8 @@ def main():
         try:
             robot.move_down_safe()
             time.sleep(5)
-            roll_stepper(robot)
+            #robot.rotate_yaw_deg(25)
+            yaw_stepper(robot, 25)
         finally:
             robot.close()
 

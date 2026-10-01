@@ -29,7 +29,7 @@ Key details:
 
 import time
 import math
-import m3d
+import math3d as m3d
 import numpy as np
 from urx.urrobot import URRobot
 
@@ -207,7 +207,7 @@ class UR5eController:
 
         home_joint_angles = (0, -1.57, 0, -1.57, 0, 0)
         self.robot.movej(home_joint_angles, acc=acc, vel=vel, wait=False)
-        time.sleep(9)
+        time.sleep(15)
         print("[UR5e] Moved to safe home position:", self.get_pose_vector())
         time.sleep(1)
 
